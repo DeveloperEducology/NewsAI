@@ -49,7 +49,29 @@ mongoose.connect(process.env.MONGO_URI)
 
 
 // 3. Set up middleware
-app.use(cors());
+
+// --- MODIFIED CORS Configuration ---
+// Define the list of allowed domains (origins)
+const allowedOrigins = [
+    'https://vijay-ixl.onrender.com',
+    'http://localhost:3000', // For local React development
+    'http://localhost:5173'  // For local Vite development
+];
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    }
+};
+
+// Use the specific CORS options
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // 4. Define API endpoints
