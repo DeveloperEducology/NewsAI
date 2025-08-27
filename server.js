@@ -11,6 +11,7 @@ import Parser from "rss-parser";
 import { classifyArticle } from "./utils/classifier.js";
 
 const NEWSAPI_KEY = "51ab13506c5a43929f34a8139deaaaf6";
+const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com";
 
 // 2️⃣ Mongoose Schema
 const ArticleSchema = new mongoose.Schema(
@@ -66,8 +67,20 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+app.get("/", (req, res) => {
+  res.send("Server is awake!");
+});
 
-
+// Ping every 10 minutes
+// Self-ping to keep server awake every 10 minutes
+cron.schedule("*/1 * * * *", async () => {
+  try {
+    const res = await fetch(SELF_URL); // Must be correct URL
+    console.log("Self-ping status:", res.status, new Date());
+  } catch (err) {
+    console.error("Self-ping failed:", err);
+  }
+});
 
 // 4️⃣ Helper: Save article with classification
 async function saveArticle(articleData) {
@@ -165,24 +178,6 @@ async function fetchNewsAllSources() {
   return savedArticles;
 }
 
-// 6️⃣ /fetch-news endpoint
-app.get("/fetch-news", async (req, res) => {
-  try {
-    const savedArticles = await fetchNewsAllSources();
-    res.json({
-      message: "News fetched successfully",
-      count: savedArticles.length,
-      articles: savedArticles,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to fetch news" });
-  }
-});
-
-
-
-
 // 7️⃣ Scraping Endpoint
 // --- 1️⃣ Scrape endpoint using Puppeteer ---
 app.get("/scrape", async (req, res) => {
@@ -246,126 +241,6 @@ app.get("/scrape", async (req, res) => {
   }
 });
 
-// --- Combined Fetch News Endpoint (Parallel Version) ---
-// --- /fetch-news Endpoint ---
-app.get("/fetch-news", async (req, res) => {
-  const savedArticles = [];
-
-  try {
-    // --- 1️⃣ NewsAPI ---
-    const newsApiUrl = `https://newsapi.org/v2/top-headlines?country=in&category=business&apiKey=${NEWSAPI_KEY}`;
-    const newsApiRes = await fetch(newsApiUrl);
-    const newsApiData = await newsApiRes.json();
-
-    if (newsApiData.articles) {
-      for (const item of newsApiData.articles) {
-        const articleData = {
-          title: item.title,
-          summary: item.description,
-          body: item.content || item.description,
-          source: item.source.name,
-          url: item.url,
-          publishedAt: new Date(item.publishedAt),
-        };
-
-        const { categories, topCategory } = classifyArticle(
-          articleData.title + " " + articleData.body
-        );
-        articleData.categories = categories;
-        articleData.topCategory = topCategory;
-
-        const result = await Article.updateOne(
-          { url: articleData.url },
-          { $setOnInsert: articleData },
-          { upsert: true }
-        );
-
-        if (result.upsertedCount > 0) savedArticles.push(articleData);
-      }
-    }
-
-    // --- 2️⃣ RSS Feed ---
-    const parser = new Parser();
-    const feed = await parser.parseURL(
-      "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"
-    );
-
-    for (const item of feed.items) {
-      const articleData = {
-        title: item.title,
-        summary: item.contentSnippet,
-        body: item.content || item.contentSnippet,
-        url: item.link,
-        source: "TOI",
-        publishedAt: new Date(item.pubDate),
-      };
-
-      const { categories, topCategory } = classifyArticle(
-        articleData.title + " " + articleData.body
-      );
-      articleData.categories = categories;
-      articleData.topCategory = topCategory;
-
-      const result = await Article.updateOne(
-        { url: articleData.url },
-        { $setOnInsert: articleData },
-        { upsert: true }
-      );
-
-      if (result.upsertedCount > 0) savedArticles.push(articleData);
-    }
-
-    // --- 3️⃣ Web Scraper (Example) ---
-    const scrapeRes = await fetch("https://www.hindustantimes.com/trending");
-    const html = await scrapeRes.text();
-    const $ = cheerio.load(html);
-
-    const articles = [];
-    $("article").each((i, el) => {
-      const title = $(el).find("h2").text().trim();
-      const url = $(el).find("a").attr("href");
-      const summary = $(el).find("p").text().trim();
-      const publishedAt = new Date();
-
-      if (title && url) {
-        const articleData = {
-          title,
-          summary,
-          body: summary,
-          url,
-          source: "Example",
-          publishedAt,
-        };
-        const { categories, topCategory } = classifyArticle(
-          title + " " + summary
-        );
-        articleData.categories = categories;
-        articleData.topCategory = topCategory;
-
-        articles.push(articleData);
-      }
-    });
-
-    for (const articleData of articles) {
-      const result = await Article.updateOne(
-        { url: articleData.url },
-        { $setOnInsert: articleData },
-        { upsert: true }
-      );
-      if (result.upsertedCount > 0) savedArticles.push(articleData);
-    }
-
-    res.json({
-      message: "News fetched from NewsAPI, RSS, and Scraper",
-      count: savedArticles.length,
-      articles: savedArticles,
-    });
-  } catch (error) {
-    console.error("Fetch news error:", error);
-    res.status(500).json({ error: "Failed to fetch news" });
-  }
-});
-
 // 8️⃣ Generate Article Preview (Gemini API)
 app.post("/api/generate", async (req, res) => {
   const { prompt } = req.body;
@@ -425,7 +300,7 @@ app.post("/api/articles", async (req, res) => {
 app.get("/api/articles", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
     const articles = await Article.find()
@@ -485,21 +360,135 @@ app.delete("/api/articles/:id", async (req, res) => {
   }
 });
 
-// Run every 30 minutes
-cron.schedule("*/30 * * * *", async () => {
-  console.log("Running automated fetch-news job every 30 minutes...");
+// --- 4️⃣ Fetch & Save News Function ---
+async function fetchNews() {
+  console.log("Running fetchNews...");
+
+  const savedArticles = [];
+
   try {
-    await fetchNewsAllSources();
-    console.log("Automated fetch completed");
+    // --- NewsAPI ---
+    const newsApiUrl = `https://newsapi.org/v2/top-headlines?country=in&category=business&apiKey=${NEWSAPI_KEY}`;
+    const newsApiRes = await fetch(newsApiUrl);
+    const newsApiData = await newsApiRes.json();
+
+    if (newsApiData.articles) {
+      for (const item of newsApiData.articles) {
+        const articleData = {
+          title: item.title,
+          summary: item.description,
+          body: item.content || item.description,
+          source: item.source.name,
+          url: item.url,
+          publishedAt: new Date(item.publishedAt),
+        };
+
+        const { categories, topCategory } = classifyArticle(
+          articleData.title + " " + articleData.body
+        );
+        articleData.categories = categories;
+        articleData.topCategory = topCategory;
+
+        const result = await Article.updateOne(
+          { url: articleData.url },
+          { $setOnInsert: articleData },
+          { upsert: true }
+        );
+        if (result.upsertedCount > 0) savedArticles.push(articleData);
+      }
+    }
+
+    // --- RSS Feed ---
+    const parser = new Parser();
+    const feed = await parser.parseURL(
+      "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"
+    );
+
+    for (const item of feed.items) {
+      const articleData = {
+        title: item.title,
+        summary: item.contentSnippet,
+        body: item.content || item.contentSnippet,
+        url: item.link,
+        source: "TOI",
+        publishedAt: new Date(item.pubDate),
+      };
+
+      const { categories, topCategory } = classifyArticle(
+        articleData.title + " " + articleData.body
+      );
+      articleData.categories = categories;
+      articleData.topCategory = topCategory;
+
+      const result = await Article.updateOne(
+        { url: articleData.url },
+        { $setOnInsert: articleData },
+        { upsert: true }
+      );
+      if (result.upsertedCount > 0) savedArticles.push(articleData);
+    }
+
+    // --- Scraper Example (Hindustan Times) ---
+    const scrapeRes = await fetch("https://www.hindustantimes.com/trending");
+    const html = await scrapeRes.text();
+    const $ = cheerio.load(html);
+
+    $("article").each(async (i, el) => {
+      const title = $(el).find("h2").text().trim();
+      const url = $(el).find("a").attr("href");
+      const summary = $(el).find("p").text().trim();
+      const publishedAt = new Date();
+
+      if (title && url) {
+        const articleData = {
+          title,
+          summary,
+          body: summary,
+          url,
+          source: "Hindustan Times",
+          publishedAt,
+        };
+        const { categories, topCategory } = classifyArticle(
+          title + " " + summary
+        );
+        articleData.categories = categories;
+        articleData.topCategory = topCategory;
+
+        const result = await Article.updateOne(
+          { url: articleData.url },
+          { $setOnInsert: articleData },
+          { upsert: true }
+        );
+        if (result.upsertedCount > 0) savedArticles.push(articleData);
+      }
+    });
+
+    console.log(
+      `fetchNews finished. Saved ${savedArticles.length} new articles.`
+    );
   } catch (err) {
-    console.error("Automated fetch error:", err);
+    console.error("fetchNews error:", err);
   }
+
+  return savedArticles;
+}
+
+// --- 5️⃣ /fetch-news Endpoint ---
+app.get("/fetch-news", async (req, res) => {
+  const articles = await fetchNews();
+  res.json({ message: "News fetched", count: articles.length, articles });
 });
 
+// --- 6️⃣ Cron Job: Every 30 minutes ---
+cron.schedule("*/30 * * * *", async () => {
+  console.log("Cron triggered fetchNews");
+  await fetchNews();
+});
 
+// --- 7️⃣ Start Server & Initial Fetch ---
+app.listen(port, async () => {
+  console.log(`Server running on http://localhost:${port}`);
 
-
-// 10️⃣ Start server
-app.listen(port, () =>
-  console.log(`Server running on http://localhost:${port}`)
-);
+  // Initial fetch to awake server immediately
+  await fetchNews();
+});
