@@ -10,8 +10,8 @@ import cron from "node-cron";
 import Parser from "rss-parser";
 import { classifyArticle } from "./utils/classifier.js";
 
-const NEWSAPI_KEY = "51ab13506c5a43929f34a8139deaaaf6";
-const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com";
+const NEWSAPI_KEY = process.env.NEWSAPI_KEY || "51ab13506c5a43929f34a8139deaaaf6";
+const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com/";
 
 // 2️⃣ Mongoose Schema
 const ArticleSchema = new mongoose.Schema(
