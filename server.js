@@ -32,6 +32,7 @@ function cleanHtmlContent(htmlContent) {
 const RSS_URLS = [
   // Telugu News
   "https://www.eenadu.net/rssFeeds",
+  "https://ntvtelugu.com/feed",
   "https://www.sakshi.com/rss.xml",
   // "https://www.andhrajyothy.com/rss",
   "https://www.ntnews.com/rss",
