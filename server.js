@@ -10,8 +10,42 @@ import cron from "node-cron";
 import Parser from "rss-parser";
 import { classifyArticle } from "./utils/classifier.js";
 
-const NEWSAPI_KEY = process.env.NEWSAPI_KEY || "51ab13506c5a43929f34a8139deaaaf6";
-const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com/";
+const NEWSAPI_KEY = "51ab13506c5a43929f34a8139deaaaf6";
+const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com";
+
+function cleanHtmlContent(htmlContent) {
+  if (!htmlContent) return "";
+
+  // Load the HTML content into cheerio
+  const $ = cheerio.load(htmlContent);
+
+  // Get the plain text from the HTML
+  let text = $.text();
+
+  // Remove common RSS "read more" placeholders and trim whitespace
+  text = text.replace(/\[\s*…\s*\]|\[&#8230;\]/g, "").trim();
+
+  return text;
+}
+
+// Centralized RSS URLs list (Telugu + National)
+const RSS_URLS = [
+  // Telugu News
+  "https://www.eenadu.net/rssFeeds",
+  "https://www.sakshi.com/rss.xml",
+  // "https://www.andhrajyothy.com/rss",
+  "https://www.ntnews.com/rss",
+  "https://www.manatelangana.news/feed",
+
+  // Google News Telugu
+  // "https://news.google.com/rss?hl=te&gl=IN&ceid=IN:te",
+
+  // Major Indian English News
+  "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+  "https://www.thehindu.com/news/national/feeder/default.rss",
+  "https://indianexpress.com/feed/",
+  "https://feeds.feedburner.com/ndtvnews-latest",
+];
 
 // 2️⃣ Mongoose Schema
 const ArticleSchema = new mongoose.Schema(
@@ -19,7 +53,7 @@ const ArticleSchema = new mongoose.Schema(
     title: { type: String, required: true },
     summary: String,
     body: String,
-    lang: { type: String, default: "te" },
+    lang: { type: String },
     region: { type: String, default: "AP" },
     source: String,
     imageUrl: String,
@@ -67,22 +101,42 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+function detectLanguage(text, source = "") {
+  if (/[\u0C00-\u0C7F]/.test(text)) return "te"; // Telugu unicode range
+
+  // Add any missing Telugu source names to this list
+  const teluguSources = [
+    "eenadu",
+    "sakshi",
+    "andhrajyothy",
+    "ntnews",
+    "manatelangana",
+    "google.com/rss?hl=te",
+    // Add other sources here, e.g., "vaartha", "prajasakti", "visalaandhra"
+  ];
+
+  // The check is case-insensitive, so you just need the core name
+  if (source && teluguSources.some((s) => source.toLowerCase().includes(s))) {
+    return "te";
+  }
+
+  return "en"; // default
+}
 app.get("/", (req, res) => {
   res.send("Server is awake!");
 });
 
-// Ping every 10 minutes
-// Self-ping to keep server awake every 10 minutes
-cron.schedule("*/1 * * * *", async () => {
+// 🔄 Self-ping every 10 minutes to keep alive
+cron.schedule("*/5 * * * *", async () => {
   try {
-    const res = await fetch(SELF_URL); // Must be correct URL
+    const res = await fetch(SELF_URL);
     console.log("Self-ping status:", res.status, new Date());
   } catch (err) {
     console.error("Self-ping failed:", err);
   }
 });
 
-// 4️⃣ Helper: Save article with classification
+// 6️⃣ Helper: Save article with classification
 async function saveArticle(articleData) {
   const { categories, topCategory } = classifyArticle(
     articleData.title + " " + (articleData.body || "")
@@ -98,19 +152,22 @@ async function saveArticle(articleData) {
   return result.upsertedCount > 0 ? articleData : null;
 }
 
-// 5️⃣ Combined fetch function
-async function fetchNewsAllSources() {
+// 7️⃣ Fetch News (NewsAPI + RSS + Scraper)
+// 7️⃣ Fetch News (NewsAPI + RSS + Scraper)
+async function fetchNews() {
+  console.log("Running fetchNews...");
   const savedArticles = [];
+  const parser = new Parser();
 
-  // --- NewsAPI ---
   try {
-    const newsApiUrl = `https://newsapi.org/v2/top-headlines?country=in&category=business&apiKey=${NEWSAPI_KEY}`;
-    const res = await fetch(newsApiUrl);
-    const data = await res.json();
+    // --- NewsAPI ---
+    const newsApiUrl = `https://newsapi.org/v2/top-headlines?country=in&category=politics&apiKey=${NEWSAPI_KEY}`;
+    const newsApiRes = await fetch(newsApiUrl);
+    const newsApiData = await newsApiRes.json();
 
-    if (data.articles) {
-      for (const item of data.articles) {
-        const article = {
+    if (newsApiData.articles) {
+      for (const item of newsApiData.articles) {
+        const articleData = {
           title: item.title,
           summary: item.description,
           body: item.content || item.description,
@@ -118,185 +175,106 @@ async function fetchNewsAllSources() {
           url: item.url,
           publishedAt: new Date(item.publishedAt),
         };
-        const saved = await saveArticle(article);
+
+        articleData.lang = detectLanguage(
+          articleData.title + " " + (articleData.body || ""),
+          articleData.source
+        );
+
+        const saved = await saveArticle(articleData);
         if (saved) savedArticles.push(saved);
       }
     }
-  } catch (err) {
-    console.error("NewsAPI error:", err);
-  }
 
-  // --- RSS Feed ---
-  try {
-    const parser = new Parser();
-    const feed = await parser.parseURL(
-      "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"
+    // --- RSS Feeds (parallel) ---
+    const rssFeeds = await Promise.allSettled(
+      RSS_URLS.map((url) => parser.parseURL(url))
     );
-    for (const item of feed.items) {
-      const article = {
-        title: item.title,
-        summary: item.contentSnippet,
-        body: item.content || item.contentSnippet,
-        url: item.link,
-        source: "TOI",
-        publishedAt: new Date(item.pubDate),
-      };
-      const saved = await saveArticle(article);
-      if (saved) savedArticles.push(saved);
-    }
-  } catch (err) {
-    console.error("RSS error:", err);
-  }
 
-  // --- Cheerio Scraper ---
-  try {
-    const scrapeRes = await fetch("https://www.hindustantimes.com/trending");
+    for (const result of rssFeeds) {
+      if (result.status === "fulfilled") {
+        const feed = result.value;
+        for (const item of feed.items) {
+          const cleanSummary = cleanHtmlContent(
+            item.contentSnippet || item.description
+          );
+          const cleanBody = cleanHtmlContent(
+            item.content || item.contentSnippet || item.description
+          );
+
+          const articleData = {
+            title: item.title,
+            summary: cleanSummary,
+            body: cleanBody,
+            url: item.link,
+            source: feed.title || "RSS",
+            publishedAt: new Date(item.pubDate || Date.now()),
+          };
+
+          articleData.lang = detectLanguage(
+            articleData.title + " " + (articleData.body || ""),
+            articleData.source
+          );
+
+          const saved = await saveArticle(articleData);
+          if (saved) savedArticles.push(saved);
+        }
+      }
+    }
+
+    // --- Scraper Example (Hindustan Times) ---
+    const scrapeRes = await fetch("https://www.hindustantimes.com/trending", {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
     const html = await scrapeRes.text();
     const $ = cheerio.load(html);
 
-    $("article").each(async (i, el) => {
+    const articleElements = $("article");
+    for (const el of articleElements) {
       const title = $(el).find("h2").text().trim();
       const url = $(el).find("a").attr("href");
       const summary = $(el).find("p").text().trim();
+
       if (title && url) {
-        const article = {
+        const articleData = {
           title,
           summary,
           body: summary,
           url,
-          source: "HindustanTimes",
+          source: "Hindustan Times",
           publishedAt: new Date(),
         };
-        const saved = await saveArticle(article);
+
+        articleData.lang = detectLanguage(
+          articleData.title + " " + (articleData.body || ""),
+          articleData.source
+        );
+
+        const saved = await saveArticle(articleData);
         if (saved) savedArticles.push(saved);
       }
-    });
+    }
+
+    console.log(
+      `✅ fetchNews finished. Saved ${savedArticles.length} new articles.`
+    );
   } catch (err) {
-    console.error("Scraper error:", err);
+    console.error("fetchNews error:", err);
   }
 
   return savedArticles;
 }
 
-// 7️⃣ Scraping Endpoint
-// --- 1️⃣ Scrape endpoint using Puppeteer ---
-app.get("/scrape", async (req, res) => {
-  const targetUrl = req.query.url || "https://www.hindustantimes.com/trending"; // example news URL
-
-  try {
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
-
-    // Set User-Agent to mimic real browser
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36"
-    );
-
-    await page.goto(targetUrl, { waitUntil: "networkidle2" });
-    await page.waitFor(2000); // optional wait for JS to load
-
-    // Extract articles
-    const articles = await page.evaluate(() => {
-      const list = [];
-      const items = document.querySelectorAll("article"); // adjust selector as per website
-
-      items.forEach((el) => {
-        const titleEl = el.querySelector("h2") || el.querySelector("h3");
-        const linkEl = el.querySelector("a");
-        const summaryEl = el.querySelector("p");
-
-        if (titleEl && linkEl) {
-          list.push({
-            title: titleEl.innerText.trim(),
-            url: linkEl.href,
-            summary: summaryEl ? summaryEl.innerText.trim() : "",
-            body: summaryEl ? summaryEl.innerText.trim() : "",
-            source: window.location.hostname,
-            publishedAt: new Date(),
-          });
-        }
-      });
-      return list;
-    });
-
-    await browser.close();
-
-    // Save to MongoDB
-    for (const article of articles) {
-      await Article.updateOne(
-        { url: article.url },
-        { $setOnInsert: article },
-        { upsert: true }
-      );
-    }
-
-    res.json({
-      message: "Scraping completed",
-      count: articles.length,
-      articles,
-    });
-  } catch (error) {
-    console.error("Scrape error:", error);
-    res.status(500).json({ error: "Failed to scrape website" });
-  }
+// 8️⃣ API Endpoints
+app.get("/fetch-news", async (req, res) => {
+  const articles = await fetchNews();
+  res.json({ message: "News fetched", count: articles.length, articles });
 });
 
-// 8️⃣ Generate Article Preview (Gemini API)
-app.post("/api/generate", async (req, res) => {
-  const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: "Prompt is required" });
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-  const wrapperPrompt = `
-    You are a text processing bot. Follow user's command exactly.
-    User command: "${prompt}"
-    Output MUST be a single JSON with keys: "title" and "body".
-  `;
-
-  const requestBody = { contents: [{ parts: [{ text: wrapperPrompt }] }] };
-
-  try {
-    const apiResponse = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!apiResponse.ok)
-      throw new Error(`Gemini API failed: ${apiResponse.status}`);
-    const data = await apiResponse.json();
-    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    const articleObject = JSON.parse(generatedText);
-
-    res.status(200).json({
-      title: articleObject.title,
-      body: articleObject.body,
-      publishedAt: new Date(),
-      lang: "te",
-      region: "AP",
-    });
-  } catch (error) {
-    console.error("Error generating content:", error);
-    res.status(500).json({ error: "Failed to generate content" });
-  }
-});
-
-// 9️⃣ CRUD Endpoints
-// POST - Create
-app.post("/api/articles", async (req, res) => {
-  try {
-    const newArticle = new Article(req.body);
-    const savedArticle = await newArticle.save();
-    res.status(201).json(savedArticle);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to save article" });
-  }
-});
-
-// GET - Fetch
 app.get("/api/articles", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -322,173 +300,14 @@ app.get("/api/articles", async (req, res) => {
   }
 });
 
-// PUT - Update
-app.put("/api/articles/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id))
-      return res.status(400).json({ error: "Invalid ID" });
-
-    const updatedArticle = await Article.findByIdAndUpdate(id, req.body, {
-      new: true,
-    });
-
-    if (!updatedArticle)
-      return res.status(404).json({ error: "Article not found" });
-    res.status(200).json(updatedArticle);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to update article" });
-  }
-});
-
-// DELETE - Remove
-app.delete("/api/articles/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id))
-      return res.status(400).json({ error: "Invalid ID" });
-
-    const deletedArticle = await Article.findByIdAndDelete(id);
-    if (!deletedArticle)
-      return res.status(404).json({ error: "Article not found" });
-
-    res.status(200).json({ message: "Article deleted successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to delete article" });
-  }
-});
-
-// --- 4️⃣ Fetch & Save News Function ---
-async function fetchNews() {
-  console.log("Running fetchNews...");
-
-  const savedArticles = [];
-
-  try {
-    // --- NewsAPI ---
-    const newsApiUrl = `https://newsapi.org/v2/top-headlines?country=in&category=business&apiKey=${NEWSAPI_KEY}`;
-    const newsApiRes = await fetch(newsApiUrl);
-    const newsApiData = await newsApiRes.json();
-
-    if (newsApiData.articles) {
-      for (const item of newsApiData.articles) {
-        const articleData = {
-          title: item.title,
-          summary: item.description,
-          body: item.content || item.description,
-          source: item.source.name,
-          url: item.url,
-          publishedAt: new Date(item.publishedAt),
-        };
-
-        const { categories, topCategory } = classifyArticle(
-          articleData.title + " " + articleData.body
-        );
-        articleData.categories = categories;
-        articleData.topCategory = topCategory;
-
-        const result = await Article.updateOne(
-          { url: articleData.url },
-          { $setOnInsert: articleData },
-          { upsert: true }
-        );
-        if (result.upsertedCount > 0) savedArticles.push(articleData);
-      }
-    }
-
-    // --- RSS Feed ---
-    const parser = new Parser();
-    const feed = await parser.parseURL(
-      "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"
-    );
-
-    for (const item of feed.items) {
-      const articleData = {
-        title: item.title,
-        summary: item.contentSnippet,
-        body: item.content || item.contentSnippet,
-        url: item.link,
-        source: "TOI",
-        publishedAt: new Date(item.pubDate),
-      };
-
-      const { categories, topCategory } = classifyArticle(
-        articleData.title + " " + articleData.body
-      );
-      articleData.categories = categories;
-      articleData.topCategory = topCategory;
-
-      const result = await Article.updateOne(
-        { url: articleData.url },
-        { $setOnInsert: articleData },
-        { upsert: true }
-      );
-      if (result.upsertedCount > 0) savedArticles.push(articleData);
-    }
-
-    // --- Scraper Example (Hindustan Times) ---
-    const scrapeRes = await fetch("https://www.hindustantimes.com/trending");
-    const html = await scrapeRes.text();
-    const $ = cheerio.load(html);
-
-    $("article").each(async (i, el) => {
-      const title = $(el).find("h2").text().trim();
-      const url = $(el).find("a").attr("href");
-      const summary = $(el).find("p").text().trim();
-      const publishedAt = new Date();
-
-      if (title && url) {
-        const articleData = {
-          title,
-          summary,
-          body: summary,
-          url,
-          source: "Hindustan Times",
-          publishedAt,
-        };
-        const { categories, topCategory } = classifyArticle(
-          title + " " + summary
-        );
-        articleData.categories = categories;
-        articleData.topCategory = topCategory;
-
-        const result = await Article.updateOne(
-          { url: articleData.url },
-          { $setOnInsert: articleData },
-          { upsert: true }
-        );
-        if (result.upsertedCount > 0) savedArticles.push(articleData);
-      }
-    });
-
-    console.log(
-      `fetchNews finished. Saved ${savedArticles.length} new articles.`
-    );
-  } catch (err) {
-    console.error("fetchNews error:", err);
-  }
-
-  return savedArticles;
-}
-
-// --- 5️⃣ /fetch-news Endpoint ---
-app.get("/fetch-news", async (req, res) => {
-  const articles = await fetchNews();
-  res.json({ message: "News fetched", count: articles.length, articles });
-});
-
-// --- 6️⃣ Cron Job: Every 30 minutes ---
+// 9️⃣ Cron Job: Every 30 minutes
 cron.schedule("*/30 * * * *", async () => {
-  console.log("Cron triggered fetchNews");
+  console.log("⏰ Cron triggered fetchNews");
   await fetchNews();
 });
 
-// --- 7️⃣ Start Server & Initial Fetch ---
+// 🔟 Start Server
 app.listen(port, async () => {
-  console.log(`Server running on http://localhost:${port}`);
-
-  // Initial fetch to awake server immediately
-  await fetchNews();
+  console.log(`🚀 Server running on http://localhost:${port}`);
+  await fetchNews(); // run once on startup
 });
