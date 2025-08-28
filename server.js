@@ -33,7 +33,10 @@ const RSS_URLS = [
   // Telugu News
   "https://www.eenadu.net/rssFeeds",
   "https://ntvtelugu.com/feed",
+  "https://telugu.gulte.com/feed",
+  "https://www.andhrajyothy.com/rss/feed.xml",
   "https://www.sakshi.com/rss.xml",
+  "https://10tv.in/latest/feed",
   // "https://www.andhrajyothy.com/rss",
   "https://www.ntnews.com/rss",
   "https://www.manatelangana.news/feed",
