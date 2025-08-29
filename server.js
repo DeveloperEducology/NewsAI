@@ -1,3 +1,4 @@
+// server.js
 // 1️⃣ Import necessary packages
 import express from "express";
 import cors from "cors";
@@ -13,21 +14,61 @@ import { classifyArticle } from "./utils/classifier.js";
 const NEWSAPI_KEY = "51ab13506c5a43929f34a8139deaaaf6";
 const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com";
 
+// --- Utilities ---
 function cleanHtmlContent(htmlContent) {
   if (!htmlContent) return "";
 
-  // Load the HTML content into cheerio
   const $ = cheerio.load(htmlContent);
-
-  // Get the plain text from the HTML
   let text = $.text();
-
-  // Remove common RSS "read more" placeholders and trim whitespace
   text = text.replace(/\[\s*…\s*\]|\[&#8230;\]/g, "").trim();
-
   return text;
 }
 
+/**
+ * Try extract first image URL from various possible RSS/HTML fields
+ */
+function extractImageFromItem(item) {
+  // 1) Common enclosure
+  if (item.enclosure && item.enclosure.url) return item.enclosure.url;
+
+  // 2) urlToImage (some feeds may include it)
+  if (item.urlToImage) return item.urlToImage;
+
+  // 3) media:content or media groups
+  if (item["media:content"] && item["media:content"].url)
+    return item["media:content"].url;
+  if (Array.isArray(item.media) && item.media.length > 0) {
+    const m = item.media[0];
+    if (m.url) return m.url;
+    if (m["media:content"] && m["media:content"].url)
+      return m["media:content"].url;
+  }
+
+  // 4) Look inside content / content:encoded / description / contentSnippet for first <img>
+  const htmlSources = [
+    item.content,
+    item["content:encoded"],
+    item.description,
+    item.contentSnippet,
+    item.summary,
+  ];
+  for (const src of htmlSources) {
+    if (!src) continue;
+    const $ = cheerio.load(src);
+    const img = $("img").first();
+    if (img && img.attr("src")) return img.attr("src");
+    // some images use data-src or srcset
+    if (img && img.attr("data-src")) return img.attr("data-src");
+  }
+
+  // 5) fallback undefined
+  return undefined;
+}
+
+const FALLBACK_IMAGE =
+  "https://media.istockphoto.com/id/1194484769/vector/live-breaking-news-flat-illustration-tv-studio-interior-vector-illustration-television-news.jpg?s=612x612&w=0&k=20&c=sA5xt873Uogwz1m7o-4IhB5x9WKczKLFqFdSwV4yxJU=";
+
+// Centralized RSS URLs list (Telugu + National)
 // Centralized RSS URLs list (Telugu + National)
 const RSS_URLS = [
   // Telugu News
@@ -61,7 +102,27 @@ const ArticleSchema = new mongoose.Schema(
     region: { type: String, default: "AP" },
     source: String,
     imageUrl: String,
-    media: { type: [String], default: [] },
+    media: {
+      type: [
+        {
+          type: {
+            type: String,
+            required: true,
+            enum: ["image", "video"],
+          },
+          src: {
+            type: String,
+            required: true,
+          },
+        },
+      ],
+      default: [
+        {
+          type: "image",
+          src: FALLBACK_IMAGE,
+        },
+      ],
+    },
     publishedAt: { type: Date, required: true },
     url: { type: String, unique: true },
     categories: { type: Map, of: Number, default: {} },
@@ -106,9 +167,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 function detectLanguage(text, source = "") {
-  if (/[\u0C00-\u0C7F]/.test(text)) return "te"; // Telugu unicode range
-
-  // Add any missing Telugu source names to this list
+  if (/[\u0C00-\u0C7F]/.test(text)) return "te";
   const teluguSources = [
     "eenadu",
     "sakshi",
@@ -116,21 +175,17 @@ function detectLanguage(text, source = "") {
     "ntnews",
     "manatelangana",
     "google.com/rss?hl=te",
-    // Add other sources here, e.g., "vaartha", "prajasakti", "visalaandhra"
   ];
-
-  // The check is case-insensitive, so you just need the core name
   if (source && teluguSources.some((s) => source.toLowerCase().includes(s))) {
     return "te";
   }
-
-  return "en"; // default
+  return "en";
 }
 app.get("/", (req, res) => {
   res.send("Server is awake!");
 });
 
-// 🔄 Self-ping every 10 minutes to keep alive
+// 🔄 Self-ping every 5 minutes to keep alive
 cron.schedule("*/5 * * * *", async () => {
   try {
     const res = await fetch(SELF_URL);
@@ -148,6 +203,23 @@ async function saveArticle(articleData) {
   articleData.categories = categories;
   articleData.topCategory = topCategory;
 
+  // Ensure imageUrl & media exist (defensive)
+  if (
+    !articleData.media ||
+    !Array.isArray(articleData.media) ||
+    articleData.media.length === 0
+  ) {
+    const fallback = {
+      type: "image",
+      src: articleData.imageUrl || FALLBACK_IMAGE,
+    };
+    articleData.media = [fallback];
+    articleData.imageUrl = articleData.imageUrl || FALLBACK_IMAGE;
+  } else {
+    // Ensure imageUrl is set to first media src
+    articleData.imageUrl = articleData.imageUrl || articleData.media[0].src;
+  }
+
   const result = await Article.updateOne(
     { url: articleData.url },
     { $setOnInsert: articleData },
@@ -156,7 +228,6 @@ async function saveArticle(articleData) {
   return result.upsertedCount > 0 ? articleData : null;
 }
 
-// 7️⃣ Fetch News (NewsAPI + RSS + Scraper)
 // 7️⃣ Fetch News (NewsAPI + RSS + Scraper)
 async function fetchNews() {
   console.log("Running fetchNews...");
@@ -171,13 +242,19 @@ async function fetchNews() {
 
     if (newsApiData.articles) {
       for (const item of newsApiData.articles) {
+        const imageCandidate = item.urlToImage || undefined;
+
         const articleData = {
-          title: item.title,
-          summary: item.description,
-          body: item.content || item.description,
-          source: item.source.name,
+          title: item.title || "Untitled",
+          summary: item.description || "",
+          body: item.content || item.description || "",
+          source: item.source?.name || "NewsAPI",
           url: item.url,
-          publishedAt: new Date(item.publishedAt),
+          publishedAt: item.publishedAt
+            ? new Date(item.publishedAt)
+            : new Date(),
+          imageUrl: imageCandidate,
+          media: imageCandidate ? [{ type: "image", src: imageCandidate }] : [],
         };
 
         articleData.lang = detectLanguage(
@@ -200,19 +277,73 @@ async function fetchNews() {
         const feed = result.value;
         for (const item of feed.items) {
           const cleanSummary = cleanHtmlContent(
-            item.contentSnippet || item.description
+            item.contentSnippet || item.description || ""
           );
           const cleanBody = cleanHtmlContent(
-            item.content || item.contentSnippet || item.description
+            item.content || item.contentSnippet || item.description || ""
           );
 
+          // attempt to find an image
+          const extracted = extractImageFromItem(item);
+
           const articleData = {
-            title: item.title,
+            title: item.title || "Untitled",
             summary: cleanSummary,
             body: cleanBody,
-            url: item.link,
+            url: item.link || item.guid || "",
             source: feed.title || "RSS",
-            publishedAt: new Date(item.pubDate || Date.now()),
+            publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
+            imageUrl: extracted,
+            media: extracted ? [{ type: "image", src: extracted }] : [],
+          };
+
+          articleData.lang = detectLanguage(
+            articleData.title + " " + (articleData.body || ""),
+            articleData.source
+          );
+
+          const saved = await saveArticle(articleData);
+          if (saved) savedArticles.push(saved);
+        }
+      } else {
+        console.warn("One RSS feed failed:", result.reason);
+      }
+    }
+
+    // --- Scraper Example (Hindustan Times) ---
+    try {
+      const scrapeRes = await fetch("https://www.hindustantimes.com/trending", {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
+      const html = await scrapeRes.text();
+      const $ = cheerio.load(html);
+
+      const articleElements = $("article");
+      for (const el of articleElements) {
+        const title = $(el).find("h2").text().trim();
+        let url = $(el).find("a").attr("href");
+        if (url && url.startsWith("/"))
+          url = `https://www.hindustantimes.com${url}`;
+        const summary = $(el).find("p").text().trim();
+
+        // try image inside element
+        const img = $(el).find("img").first();
+        let imgUrl = img.attr("src") || img.attr("data-src") || undefined;
+
+        if (title && url) {
+          const articleData = {
+            title,
+            summary,
+            body: summary || "",
+            url,
+            source: "Hindustan Times",
+            publishedAt: new Date(),
+            imageUrl: imgUrl,
+            media: imgUrl ? [{ type: "image", src: imgUrl }] : [],
           };
 
           articleData.lang = detectLanguage(
@@ -224,43 +355,8 @@ async function fetchNews() {
           if (saved) savedArticles.push(saved);
         }
       }
-    }
-
-    // --- Scraper Example (Hindustan Times) ---
-    const scrapeRes = await fetch("https://www.hindustantimes.com/trending", {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-    const html = await scrapeRes.text();
-    const $ = cheerio.load(html);
-
-    const articleElements = $("article");
-    for (const el of articleElements) {
-      const title = $(el).find("h2").text().trim();
-      const url = $(el).find("a").attr("href");
-      const summary = $(el).find("p").text().trim();
-
-      if (title && url) {
-        const articleData = {
-          title,
-          summary,
-          body: summary,
-          url,
-          source: "Hindustan Times",
-          publishedAt: new Date(),
-        };
-
-        articleData.lang = detectLanguage(
-          articleData.title + " " + (articleData.body || ""),
-          articleData.source
-        );
-
-        const saved = await saveArticle(articleData);
-        if (saved) savedArticles.push(saved);
-      }
+    } catch (err) {
+      console.warn("Scraper step failed:", err);
     }
 
     console.log(
@@ -279,17 +375,70 @@ app.get("/fetch-news", async (req, res) => {
   res.json({ message: "News fetched", count: articles.length, articles });
 });
 
+// 8️⃣ Generate Article Preview (Gemini API)
+app.post("/api/generate", async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  const wrapperPrompt = `
+    You are a text processing bot. Follow user's command exactly.
+    User command: "${prompt}"
+    Output MUST be a single JSON with keys: "title" and "body".
+  `;
+
+  const requestBody = { contents: [{ parts: [{ text: wrapperPrompt }] }] };
+
+  try {
+    const apiResponse = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!apiResponse.ok)
+      throw new Error(`Gemini API failed: ${apiResponse.status}`);
+    const data = await apiResponse.json();
+    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const articleObject = JSON.parse(generatedText);
+
+    res.status(200).json({
+      title: articleObject.title,
+      body: articleObject.body,
+      publishedAt: new Date(),
+      lang: "te",
+      region: "AP",
+    });
+  } catch (error) {
+    console.error("Error generating content:", error);
+    res.status(500).json({ error: "Failed to generate content" });
+  }
+});
+
+// 9️⃣ CRUD Endpoints
+app.post("/api/articles", async (req, res) => {
+  try {
+    const newArticle = new Article(req.body);
+    const savedArticle = await newArticle.save();
+    res.status(201).json(savedArticle);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to save article" });
+  }
+});
+
 app.get("/api/articles", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
     const articles = await Article.find()
       .sort({ publishedAt: -1 })
       .skip(skip)
       .limit(limit);
-
     const totalArticles = await Article.countDocuments();
 
     res.status(200).json({
@@ -301,6 +450,42 @@ app.get("/api/articles", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to fetch articles" });
+  }
+});
+
+app.put("/api/articles/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ error: "Invalid ID" });
+
+    const updatedArticle = await Article.findByIdAndUpdate(id, req.body, {
+      new: true,
+    });
+
+    if (!updatedArticle)
+      return res.status(404).json({ error: "Article not found" });
+    res.status(200).json(updatedArticle);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to update article" });
+  }
+});
+
+app.delete("/api/articles/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ error: "Invalid ID" });
+
+    const deletedArticle = await Article.findByIdAndDelete(id);
+    if (!deletedArticle)
+      return res.status(404).json({ error: "Article not found" });
+
+    res.status(200).json({ message: "Article deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to delete article" });
   }
 });
 
