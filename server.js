@@ -76,7 +76,6 @@ const RSS_URLS = [
   "https://www.123telugu.com/feed/atom",
   "https://ntvtelugu.com/feed",
   "https://telugu.gulte.com/feed",
-  "https://www.andhrajyothy.com/rss/feed.xml",
   "https://www.sakshi.com/rss.xml",
   "https://10tv.in/latest/feed",
   // "https://www.andhrajyothy.com/rss",
