@@ -100,7 +100,8 @@ const ArticleSchema = new mongoose.Schema(
     summary: String,
     body: String,
     lang: { type: String },
-    region: { type: String, default: "AP" },
+    region: { type: String },
+    isPublished: { type: Boolean, default: false },
     source: String,
     imageUrl: String,
     media: {
