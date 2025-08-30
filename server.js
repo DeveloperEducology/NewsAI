@@ -74,6 +74,7 @@ const RSS_URLS = [
   "https://ntvtelugu.com/feed",
   "https://www.sakshi.com/rss.xml",
   "https://10tv.in/latest/feed",
+  "https://www.bigtvlive.com/feed",
   // "https://www.andhrajyothy.com/rss",
   "https://www.ntnews.com/rss",
   "https://www.manatelangana.news/feed",
