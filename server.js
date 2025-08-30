@@ -73,7 +73,7 @@ const FALLBACK_IMAGE =
 const RSS_URLS = [
   // Telugu News
   "https://www.eenadu.net/rssFeeds",
-  "https://www.123telugu.com/feed/atom',
+  "https://www.123telugu.com/feed/atom",
   "https://ntvtelugu.com/feed",
   "https://telugu.gulte.com/feed",
   "https://www.andhrajyothy.com/rss/feed.xml",
