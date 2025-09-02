@@ -25,6 +25,28 @@ function cleanHtmlContent(htmlContent) {
 }
 
 /**
+ * ✨ NEW: Calculates Jaccard similarity between two strings.
+ * @param {string} text1 First string
+ * @param {string} text2 Second string
+ * @returns {number} Similarity score between 0 and 1
+ */
+function calculateJaccardSimilarity(text1, text2) {
+  if (!text1 || !text2) return 0;
+
+  // Simple normalization: lowercase and split into words
+  const set1 = new Set(text1.toLowerCase().split(/\s+/));
+  const set2 = new Set(text2.toLowerCase().split(/\s+/));
+
+  const intersection = new Set([...set1].filter((x) => set2.has(x)));
+  const union = new Set([...set1, ...set2]);
+
+  if (union.size === 0) return 0;
+
+  return intersection.size / union.size;
+}
+
+
+/**
  * Try extract first image URL from various possible RSS/HTML fields
  */
 function extractImageFromItem(item) {
@@ -91,47 +113,40 @@ const RSS_URLS = [
 ];
 
 // 2️⃣ Mongoose Schemas & Models
-const ArticleSchema = new mongoose.Schema(
-  {
-    title: { type: String, required: true },
-    summary: String,
-    body: String,
-    lang: { type: String },
-    region: { type: String, default: "AP" },
-    source: String,
-    imageUrl: String,
-    isPublished: { type: Boolean, default: false },
-    media: {
-      type: [
-        {
-          type: {
-            type: String,
-            required: true,
-            enum: ["image", "video"],
-          },
-          src: {
-            type: String,
-            required: true,
-          },
-        },
-      ],
-      default: [
-        {
-          type: "image",
-          src: FALLBACK_IMAGE,
-        },
-      ],
-    },
-    publishedAt: { type: Date, required: true },
-    url: { type: String, unique: true },
-    categories: { type: Map, of: Number, default: {} },
-    topCategory: String,
-    vecContent: { type: [Number], default: [] },
-    blocked: { type: Boolean, default: false },
-    boost: { type: Map, of: Number, default: {} },
+const ArticleSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  summary: String,
+  body: String,
+  lang: { type: String },
+  region: { type: String, default: "AP" },
+  source: String,
+  imageUrl: String,
+  isPublished: { type: Boolean, default: false },
+  media: {
+    type: [{
+      type: {
+        type: String,
+        required: true,
+        enum: ["image", "video"],
+      },
+      src: {
+        type: String,
+        required: true,
+      },
+    }, ],
+    default: [{
+      type: "image",
+      src: FALLBACK_IMAGE,
+    }, ],
   },
-  { timestamps: true }
-);
+  publishedAt: { type: Date, required: true },
+  url: { type: String, unique: true },
+  categories: { type: Map, of: Number, default: {} },
+  topCategory: String,
+  vecContent: { type: [Number], default: [] },
+  blocked: { type: Boolean, default: false },
+  boost: { type: Map, of: Number, default: {} },
+}, { timestamps: true });
 
 ArticleSchema.index({ publishedAt: -1 });
 ArticleSchema.index({ topCategory: 1 });
@@ -141,46 +156,40 @@ ArticleSchema.index({ blocked: 1 });
 const Article = mongoose.model("Article", ArticleSchema);
 
 // ✨ --- NEW: User Schema for anonymous tracking ---
-const UserSchema = new mongoose.Schema(
-  {
-    isAnonymous: { type: Boolean, default: true },
-    createdAt: { type: Date, default: Date.now },
-  },
-  { timestamps: true }
-);
+const UserSchema = new mongoose.Schema({
+  isAnonymous: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now },
+}, { timestamps: true });
 const User = mongoose.model("User", UserSchema);
 
 // ✨ --- NEW: Event Schema for tracking user interactions ---
-const EventSchema = new mongoose.Schema(
-  {
-    userId: { type: mongoose.Types.ObjectId, ref: "User", index: true },
-    articleId: { type: mongoose.Types.ObjectId, ref: "Article", index: true },
-    event: {
-      type: String,
-      enum: [
-        "impression",
-        "click",
-        "long_read",
-        "share",
-        "like",
-        "dismiss",
-      ],
-      index: true,
-    },
-    timeOfDay: {
-      type: String,
-      enum: ["morning", "midnoon", "evening", "night"],
-    },
-    position: Number,
-    context: {
-      district: String,
-      device: String,
-      network: String,
-    },
-    ts: { type: Date, default: Date.now, index: true },
+const EventSchema = new mongoose.Schema({
+  userId: { type: mongoose.Types.ObjectId, ref: "User", index: true },
+  articleId: { type: mongoose.Types.ObjectId, ref: "Article", index: true },
+  event: {
+    type: String,
+    enum: [
+      "impression",
+      "click",
+      "long_read",
+      "share",
+      "like",
+      "dismiss",
+    ],
+    index: true,
   },
-  { timestamps: false }
-); // timestamps: false as we have our own 'ts' field
+  timeOfDay: {
+    type: String,
+    enum: ["morning", "midnoon", "evening", "night"],
+  },
+  position: Number,
+  context: {
+    district: String,
+    device: String,
+    network: String,
+  },
+  ts: { type: Date, default: Date.now, index: true },
+}, { timestamps: false }); // timestamps: false as we have our own 'ts' field
 const Event = mongoose.model("Event", EventSchema);
 
 // 3️⃣ Initialize Express app
@@ -237,8 +246,45 @@ cron.schedule("*/5 * * * *", async () => {
   }
 });
 
+
+// ✨ NEW: Constants for duplicate detection
+const SIMILARITY_THRESHOLD = 0.6; // 60% similarity
+const TIME_WINDOW_HOURS = 12; // Check against articles from the last 12 hours
+
 // 6️⃣ Helper: Save article with classification
 async function saveArticle(articleData) {
+  // --- 👇 MODIFIED: DUPLICATE CHECK LOGIC ---
+  try {
+    const timeWindow = new Date();
+    timeWindow.setHours(timeWindow.getHours() - TIME_WINDOW_HOURS);
+
+    // 1. Fetch recent articles to compare against
+    const recentArticles = await Article.find({
+      publishedAt: { $gte: timeWindow },
+      lang: articleData.lang,
+    }).select("title");
+
+    // 2. Check for a similar title
+    for (const recent of recentArticles) {
+      const similarity = calculateJaccardSimilarity(
+        articleData.title,
+        recent.title
+      );
+      if (similarity >= SIMILARITY_THRESHOLD) {
+        console.log(
+          `DUPLICATE DETECTED: "${articleData.title}" is similar to "${
+            recent.title
+          }" (Score: ${similarity.toFixed(2)})`
+        );
+        return null; // Do not save the article
+      }
+    }
+  } catch (err) {
+    console.error("Error during duplicate check:", err);
+  }
+  // --- END: DUPLICATE CHECK LOGIC ---
+
+
   const { categories, topCategory } = classifyArticle(
     articleData.title + " " + (articleData.body || "")
   );
@@ -260,11 +306,7 @@ async function saveArticle(articleData) {
     articleData.imageUrl = articleData.imageUrl || articleData.media[0].src;
   }
 
-  const result = await Article.updateOne(
-    { url: articleData.url },
-    { $setOnInsert: articleData },
-    { upsert: true }
-  );
+  const result = await Article.updateOne({ url: articleData.url }, { $setOnInsert: articleData }, { upsert: true });
   return result.upsertedCount > 0 ? articleData : null;
 }
 
@@ -290,9 +332,9 @@ async function fetchNews() {
           body: item.content || item.description || "",
           source: item.source?.name || "NewsAPI",
           url: item.url,
-          publishedAt: item.publishedAt
-            ? new Date(item.publishedAt)
-            : new Date(),
+          publishedAt: item.publishedAt ?
+            new Date(item.publishedAt) :
+            new Date(),
           imageUrl: imageCandidate,
           media: imageCandidate ? [{ type: "image", src: imageCandidate }] : [],
         };
@@ -353,8 +395,7 @@ async function fetchNews() {
     try {
       const scrapeRes = await fetch("https://www.hindustantimes.com/trending", {
         headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
           "Accept-Language": "en-US,en;q=0.9",
         },
       });
@@ -430,7 +471,7 @@ app.post("/api/users/anonymous", async (req, res) => {
 app.post("/api/events", async (req, res) => {
   try {
     const { userId, articleId, event, position, context, ts, timeOfDay } =
-      req.body;
+    req.body;
 
     // Basic validation
     if (!userId || !articleId || !event) {
@@ -483,7 +524,7 @@ app.post("/api/generate", async (req, res) => {
     if (!apiResponse.ok)
       throw new Error(`Gemini API failed: ${apiResponse.status}`);
     const data = await apiResponse.json();
-    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const generatedText = data.candidates?..[0]?.content?.parts?.[0]?.text;
     const articleObject = JSON.parse(generatedText);
 
     res.status(200).json({
@@ -604,7 +645,7 @@ app.delete("/api/articles/:id", async (req, res) => {
   }
 });
 
-// 9️⃣ Cron Job: Every 30 minutes
+// 9️⃣ Cron Job: Every 10 minutes
 cron.schedule("*/10 * * * *", async () => {
   console.log("⏰ Cron triggered fetchNews");
   await fetchNews();
