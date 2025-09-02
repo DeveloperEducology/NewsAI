@@ -605,7 +605,7 @@ app.delete("/api/articles/:id", async (req, res) => {
 });
 
 // 9️⃣ Cron Job: Every 30 minutes
-cron.schedule("*/30 * * * *", async () => {
+cron.schedule("*/10 * * * *", async () => {
   console.log("⏰ Cron triggered fetchNews");
   await fetchNews();
 });
