@@ -524,7 +524,7 @@ app.post("/api/generate", async (req, res) => {
     if (!apiResponse.ok)
       throw new Error(`Gemini API failed: ${apiResponse.status}`);
     const data = await apiResponse.json();
-    const generatedText = data.candidates?..[0]?.content?.parts?.[0]?.text;
+    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     const articleObject = JSON.parse(generatedText);
 
     res.status(200).json({
