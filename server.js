@@ -72,6 +72,12 @@ const FALLBACK_IMAGE =
 const RSS_URLS = [
   // Telugu News
   "https://ntvtelugu.com/feed",
+  "https://tv9telugu.com/feed",
+  "https://telugu.hindustantimes.com/rss/andhra-pradesh",
+  "https://telugu.hindustantimes.com/rss/telangana",
+  "https://telugu.hindustantimes.com/rss/national-international",
+  "https://telugu.hindustantimes.com/rss/sports",
+  "https://telugu.hindustantimes.com/rss/entertainment",
   "https://epaper.eenadu.net/Home/RssFeed",
   "https://www.sakshi.com/rss.xml",
   "https://10tv.in/latest/feed",
