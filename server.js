@@ -84,6 +84,10 @@ const RSS_SOURCES = [
     url: "https://telugu.hindustantimes.com/rss/entertainment",
     name: "HT Telugu",
   },
+  {
+    url: "https://tv9telugu.com/web-stories/feed",
+    name: "Tv9 web stories",
+  },
   { url: "https://epaper.eenadu.net/Home/RssFeed", name: "Eenadu" },
   { url: "https://www.sakshi.com/rss.xml", name: "Sakshi" },
   { url: "https://10tv.in/latest/feed", name: "10TV" },
