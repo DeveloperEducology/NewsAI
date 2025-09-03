@@ -857,30 +857,22 @@ export const CATEGORY_KEYWORDS = {
   ],
 };
 
-export function classifyArticle(text, topN = 3, minScore = 2) {
+export function classifyArticle(text) {
   const lowerText = text.toLowerCase();
   const categories = {};
 
-  // Count keyword matches
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     let score = 0;
     for (const kw of keywords) {
-      if (lowerText.includes(kw.toLowerCase())) score += 1;
+      if (lowerText.includes(kw)) score += 1;
     }
     if (score > 0) categories[cat] = score;
   }
 
-  // Filter out weak matches
-  const filteredCategories = Object.entries(categories)
-    .filter(([_, score]) => score >= minScore);
+  let topCategory = null;
+  if (Object.keys(categories).length) {
+    topCategory = Object.entries(categories).sort((a, b) => b[1] - a[1])[0][0];
+  }
 
-  // Sort by score (highest first)
-  const sortedCategories = filteredCategories.sort((a, b) => b[1] - a[1]);
-
-  // Pick top N categories
-  const topCategories = sortedCategories
-    .slice(0, topN)
-    .map(([cat]) => cat);
-
-  return { categories, topCategories };
+  return { categories, topCategory };
 }
