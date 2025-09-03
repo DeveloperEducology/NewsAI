@@ -24,39 +24,19 @@ function cleanHtmlContent(htmlContent) {
   return text;
 }
 
-/**
- * ✨ NEW: Calculates Jaccard similarity between two strings.
- * @param {string} text1 First string
- * @param {string} text2 Second string
- * @returns {number} Similarity score between 0 and 1
- */
 function calculateJaccardSimilarity(text1, text2) {
   if (!text1 || !text2) return 0;
-
-  // Simple normalization: lowercase and split into words
   const set1 = new Set(text1.toLowerCase().split(/\s+/));
   const set2 = new Set(text2.toLowerCase().split(/\s+/));
-
   const intersection = new Set([...set1].filter((x) => set2.has(x)));
   const union = new Set([...set1, ...set2]);
-
   if (union.size === 0) return 0;
-
   return intersection.size / union.size;
 }
 
-
-/**
- * Try extract first image URL from various possible RSS/HTML fields
- */
 function extractImageFromItem(item) {
-  // 1) Common enclosure
   if (item.enclosure && item.enclosure.url) return item.enclosure.url;
-
-  // 2) urlToImage (some feeds may include it)
   if (item.urlToImage) return item.urlToImage;
-
-  // 3) media:content or media groups
   if (item["media:content"] && item["media:content"].url)
     return item["media:content"].url;
   if (Array.isArray(item.media) && item.media.length > 0) {
@@ -65,8 +45,6 @@ function extractImageFromItem(item) {
     if (m["media:content"] && m["media:content"].url)
       return m["media:content"].url;
   }
-
-  // 4) Look inside content / content:encoded / description / contentSnippet for first <img>
   const htmlSources = [
     item.content,
     item["content:encoded"],
@@ -79,74 +57,94 @@ function extractImageFromItem(item) {
     const $ = cheerio.load(src);
     const img = $("img").first();
     if (img && img.attr("src")) return img.attr("src");
-    // some images use data-src or srcset
     if (img && img.attr("data-src")) return img.attr("data-src");
   }
-
-  // 5) fallback undefined
   return undefined;
 }
 
 const FALLBACK_IMAGE =
   "https://media.istockphoto.com/id/1194484769/vector/live-breaking-news-flat-illustration-tv-studio-interior-vector-illustration-television-news.jpg?s=612x612&w=0&k=20&c=sA5xt873Uogwz1m7o-4IhB5x9WKczKLFqFdSwV4yxJU=";
 
-// Centralized RSS URLs list (Telugu + National)
-const RSS_URLS = [
+// ✨ MODIFIED: Using an array of objects for sources with clean names
+const RSS_SOURCES = [
   // Telugu News
-  "https://ntvtelugu.com/feed",
-  "https://tv9telugu.com/feed",
-  "https://telugu.hindustantimes.com/rss/andhra-pradesh",
-  "https://telugu.hindustantimes.com/rss/telangana",
-  "https://telugu.hindustantimes.com/rss/national-international",
-  "https://telugu.hindustantimes.com/rss/sports",
-  "https://telugu.hindustantimes.com/rss/entertainment",
-  "https://epaper.eenadu.net/Home/RssFeed",
-  "https://www.sakshi.com/rss.xml",
-  "https://10tv.in/latest/feed",
-  "https://www.ntnews.com/rss",
-  "https://www.manatelangana.news/feed",
+  { url: "https://ntvtelugu.com/feed", name: "NTV Telugu" },
+  { url: "https://tv9telugu.com/feed", name: "TV9 Telugu" },
+  {
+    url: "https://telugu.hindustantimes.com/rss/andhra-pradesh",
+    name: "HT Telugu",
+  },
+  { url: "https://telugu.hindustantimes.com/rss/telangana", name: "HT Telugu" },
+  {
+    url: "https://telugu.hindustantimes.com/rss/national-international",
+    name: "HT Telugu",
+  },
+  { url: "https://telugu.hindustantimes.com/rss/sports", name: "HT Telugu" },
+  {
+    url: "https://telugu.hindustantimes.com/rss/entertainment",
+    name: "HT Telugu",
+  },
+  { url: "https://epaper.eenadu.net/Home/RssFeed", name: "Eenadu" },
+  { url: "https://www.sakshi.com/rss.xml", name: "Sakshi" },
+  { url: "https://10tv.in/latest/feed", name: "10TV" },
+  { url: "https://www.ntnews.com/rss", name: "Namasthe Telangana" },
+  { url: "https://www.manatelangana.news/feed", name: "Mana Telangana" },
   // Major Indian English News
-  "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
-  "https://www.thehindu.com/news/national/feeder/default.rss",
-  "https://indianexpress.com/feed/",
-  "https://feeds.feedburner.com/ndtvnews-latest",
+  {
+    url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+    name: "Times of India",
+  },
+  {
+    url: "https://www.thehindu.com/news/national/feeder/default.rss",
+    name: "The Hindu",
+  },
+  { url: "https://indianexpress.com/feed/", name: "Indian Express" },
+  { url: "https://feeds.feedburner.com/ndtvnews-latest", name: "NDTV News" },
 ];
 
 // 2️⃣ Mongoose Schemas & Models
-const ArticleSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  summary: String,
-  body: String,
-  lang: { type: String },
-  region: { type: String, default: "AP" },
-  source: String,
-  imageUrl: String,
-  isPublished: { type: Boolean, default: false },
-  media: {
-    type: [{
-      type: {
-        type: String,
-        required: true,
-        enum: ["image", "video"],
-      },
-      src: {
-        type: String,
-        required: true,
-      },
-    }, ],
-    default: [{
-      type: "image",
-      src: FALLBACK_IMAGE,
-    }, ],
+const ArticleSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true },
+    summary: String,
+    body: String,
+    lang: { type: String },
+    region: { type: String, default: "AP" },
+    source: String,
+    imageUrl: String,
+    isPublished: { type: Boolean, default: false },
+    media: {
+      type: [
+        {
+          type: {
+            type: String,
+            required: true,
+            enum: ["image", "video"],
+          },
+          src: {
+            type: String,
+            required: true,
+          },
+        },
+      ],
+      default: [
+        {
+          type: "image",
+          src: FALLBACK_IMAGE,
+        },
+      ],
+    },
+    isCreatedBy: { type: String, require: true, default: "rss" },
+    publishedAt: { type: Date, required: true },
+    url: { type: String, unique: true },
+    categories: { type: Map, of: Number, default: {} },
+    topCategory: String,
+    vecContent: { type: [Number], default: [] },
+    blocked: { type: Boolean, default: false },
+    boost: { type: Map, of: Number, default: {} },
   },
-  publishedAt: { type: Date, required: true },
-  url: { type: String, unique: true },
-  categories: { type: Map, of: Number, default: {} },
-  topCategory: String,
-  vecContent: { type: [Number], default: [] },
-  blocked: { type: Boolean, default: false },
-  boost: { type: Map, of: Number, default: {} },
-}, { timestamps: true });
+  { timestamps: true }
+);
 
 ArticleSchema.index({ publishedAt: -1 });
 ArticleSchema.index({ topCategory: 1 });
@@ -155,41 +153,38 @@ ArticleSchema.index({ blocked: 1 });
 
 const Article = mongoose.model("Article", ArticleSchema);
 
-// ✨ --- NEW: User Schema for anonymous tracking ---
-const UserSchema = new mongoose.Schema({
-  isAnonymous: { type: Boolean, default: true },
-  createdAt: { type: Date, default: Date.now },
-}, { timestamps: true });
+const UserSchema = new mongoose.Schema(
+  {
+    isAnonymous: { type: Boolean, default: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+);
 const User = mongoose.model("User", UserSchema);
 
-// ✨ --- NEW: Event Schema for tracking user interactions ---
-const EventSchema = new mongoose.Schema({
-  userId: { type: mongoose.Types.ObjectId, ref: "User", index: true },
-  articleId: { type: mongoose.Types.ObjectId, ref: "Article", index: true },
-  event: {
-    type: String,
-    enum: [
-      "impression",
-      "click",
-      "long_read",
-      "share",
-      "like",
-      "dismiss",
-    ],
-    index: true,
+const EventSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Types.ObjectId, ref: "User", index: true },
+    articleId: { type: mongoose.Types.ObjectId, ref: "Article", index: true },
+    event: {
+      type: String,
+      enum: ["impression", "click", "long_read", "share", "like", "dismiss"],
+      index: true,
+    },
+    timeOfDay: {
+      type: String,
+      enum: ["morning", "midnoon", "evening", "night"],
+    },
+    position: Number,
+    context: {
+      district: String,
+      device: String,
+      network: String,
+    },
+    ts: { type: Date, default: Date.now, index: true },
   },
-  timeOfDay: {
-    type: String,
-    enum: ["morning", "midnoon", "evening", "night"],
-  },
-  position: Number,
-  context: {
-    district: String,
-    device: String,
-    network: String,
-  },
-  ts: { type: Date, default: Date.now, index: true },
-}, { timestamps: false }); // timestamps: false as we have our own 'ts' field
+  { timestamps: false }
+);
 const Event = mongoose.model("Event", EventSchema);
 
 // 3️⃣ Initialize Express app
@@ -205,7 +200,9 @@ mongoose
 // 5️⃣ Middleware
 const allowedOrigins = [
   "https://vijay-ixl.onrender.com",
+  "https://news-dashboard-ob0p.onrender.com",
   "http://localhost:3000",
+  "http://localhost:3001",
   "http://localhost:5173",
 ];
 const corsOptions = {
@@ -219,6 +216,7 @@ app.use(express.json());
 
 function detectLanguage(text, source = "") {
   if (/[\u0C00-\u0C7F]/.test(text)) return "te";
+  // ✨ MODIFIED: Added clean source names for better detection
   const teluguSources = [
     "eenadu",
     "sakshi",
@@ -226,6 +224,10 @@ function detectLanguage(text, source = "") {
     "ntnews",
     "manatelangana",
     "google.com/rss?hl=te",
+    "ntv telugu",
+    "tv9 telugu",
+    "ht telugu",
+    "10tv",
   ];
   if (source && teluguSources.some((s) => source.toLowerCase().includes(s))) {
     return "te";
@@ -246,25 +248,20 @@ cron.schedule("*/5 * * * *", async () => {
   }
 });
 
-
-// ✨ NEW: Constants for duplicate detection
-const SIMILARITY_THRESHOLD = 0.6; // 60% similarity
-const TIME_WINDOW_HOURS = 12; // Check against articles from the last 12 hours
+const SIMILARITY_THRESHOLD = 0.6;
+const TIME_WINDOW_HOURS = 12;
 
 // 6️⃣ Helper: Save article with classification
 async function saveArticle(articleData) {
-  // --- 👇 MODIFIED: DUPLICATE CHECK LOGIC ---
   try {
     const timeWindow = new Date();
     timeWindow.setHours(timeWindow.getHours() - TIME_WINDOW_HOURS);
 
-    // 1. Fetch recent articles to compare against
     const recentArticles = await Article.find({
       publishedAt: { $gte: timeWindow },
       lang: articleData.lang,
     }).select("title");
 
-    // 2. Check for a similar title
     for (const recent of recentArticles) {
       const similarity = calculateJaccardSimilarity(
         articleData.title,
@@ -276,14 +273,12 @@ async function saveArticle(articleData) {
             recent.title
           }" (Score: ${similarity.toFixed(2)})`
         );
-        return null; // Do not save the article
+        return null;
       }
     }
   } catch (err) {
     console.error("Error during duplicate check:", err);
   }
-  // --- END: DUPLICATE CHECK LOGIC ---
-
 
   const { categories, topCategory } = classifyArticle(
     articleData.title + " " + (articleData.body || "")
@@ -306,7 +301,11 @@ async function saveArticle(articleData) {
     articleData.imageUrl = articleData.imageUrl || articleData.media[0].src;
   }
 
-  const result = await Article.updateOne({ url: articleData.url }, { $setOnInsert: articleData }, { upsert: true });
+  const result = await Article.updateOne(
+    { url: articleData.url },
+    { $setOnInsert: articleData },
+    { upsert: true }
+  );
   return result.upsertedCount > 0 ? articleData : null;
 }
 
@@ -325,25 +324,23 @@ async function fetchNews() {
     if (newsApiData.articles) {
       for (const item of newsApiData.articles) {
         const imageCandidate = item.urlToImage || undefined;
-
         const articleData = {
           title: item.title || "Untitled",
           summary: item.description || "",
           body: item.content || item.description || "",
           source: item.source?.name || "NewsAPI",
           url: item.url,
-          publishedAt: item.publishedAt ?
-            new Date(item.publishedAt) :
-            new Date(),
+          isCreatedBy: "rss",
+          publishedAt: item.publishedAt
+            ? new Date(item.publishedAt)
+            : new Date(),
           imageUrl: imageCandidate,
           media: imageCandidate ? [{ type: "image", src: imageCandidate }] : [],
         };
-
         articleData.lang = detectLanguage(
           articleData.title + " " + (articleData.body || ""),
           articleData.source
         );
-
         const saved = await saveArticle(articleData);
         if (saved) savedArticles.push(saved);
       }
@@ -351,10 +348,13 @@ async function fetchNews() {
 
     // --- RSS Feeds (parallel) ---
     const rssFeeds = await Promise.allSettled(
-      RSS_URLS.map((url) => parser.parseURL(url))
+      RSS_SOURCES.map((source) => parser.parseURL(source.url))
     );
 
-    for (const result of rssFeeds) {
+    for (let i = 0; i < rssFeeds.length; i++) {
+      const result = rssFeeds[i];
+      const sourceInfo = RSS_SOURCES[i];
+
       if (result.status === "fulfilled") {
         const feed = result.value;
         for (const item of feed.items) {
@@ -364,30 +364,27 @@ async function fetchNews() {
           const cleanBody = cleanHtmlContent(
             item.content || item.contentSnippet || item.description || ""
           );
-
           const extracted = extractImageFromItem(item);
-
           const articleData = {
             title: item.title || "Untitled",
             summary: cleanSummary,
             body: cleanBody,
             url: item.link || item.guid || "",
-            source: feed.title || "RSS",
+            source: sourceInfo.name || "RSS",
+            isCreatedBy: "rss",
             publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
             imageUrl: extracted,
             media: extracted ? [{ type: "image", src: extracted }] : [],
           };
-
           articleData.lang = detectLanguage(
             articleData.title + " " + (articleData.body || ""),
             articleData.source
           );
-
           const saved = await saveArticle(articleData);
           if (saved) savedArticles.push(saved);
         }
       } else {
-        console.warn("One RSS feed failed:", result.reason);
+        console.warn(`RSS feed for ${sourceInfo.name} failed:`, result.reason);
       }
     }
 
@@ -395,7 +392,8 @@ async function fetchNews() {
     try {
       const scrapeRes = await fetch("https://www.hindustantimes.com/trending", {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36",
           "Accept-Language": "en-US,en;q=0.9",
         },
       });
@@ -424,12 +422,10 @@ async function fetchNews() {
             imageUrl: imgUrl,
             media: imgUrl ? [{ type: "image", src: imgUrl }] : [],
           };
-
           articleData.lang = detectLanguage(
             articleData.title + " " + (articleData.body || ""),
             articleData.source
           );
-
           const saved = await saveArticle(articleData);
           if (saved) savedArticles.push(saved);
         }
@@ -454,12 +450,10 @@ app.get("/fetch-news", async (req, res) => {
   res.json({ message: "News fetched", count: articles.length, articles });
 });
 
-// ✨ --- NEW: Endpoint to create an anonymous user ---
 app.post("/api/users/anonymous", async (req, res) => {
   try {
     const newUser = new User({ isAnonymous: true });
     await newUser.save();
-    // Return only the ID, which is what the client needs to store
     res.status(201).json({ userId: newUser._id });
   } catch (error) {
     console.error("Error creating anonymous user:", error);
@@ -467,19 +461,15 @@ app.post("/api/users/anonymous", async (req, res) => {
   }
 });
 
-// ✨ --- NEW: Endpoint to log user events ---
 app.post("/api/events", async (req, res) => {
   try {
     const { userId, articleId, event, position, context, ts, timeOfDay } =
-    req.body;
-
-    // Basic validation
+      req.body;
     if (!userId || !articleId || !event) {
       return res
         .status(400)
         .json({ error: "userId, articleId, and event are required" });
     }
-
     const newEvent = new Event({
       userId,
       articleId,
@@ -487,9 +477,8 @@ app.post("/api/events", async (req, res) => {
       position,
       context,
       timeOfDay,
-      ts: ts ? new Date(ts) : new Date(), // Use provided timestamp or current time
+      ts: ts ? new Date(ts) : new Date(),
     });
-
     await newEvent.save();
     res.status(201).json({ ok: true, id: newEvent._id });
   } catch (error) {
@@ -498,7 +487,6 @@ app.post("/api/events", async (req, res) => {
   }
 });
 
-// Generate Article Preview (Gemini API)
 app.post("/api/generate", async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: "Prompt is required" });
@@ -552,6 +540,54 @@ app.post("/api/articles", async (req, res) => {
   }
 });
 
+// ✨ NEW: Endpoint to create an article manually
+app.post("/api/articles/manual", async (req, res) => {
+  try {
+    const {
+      title,
+      summary,
+      body,
+      source,
+      imageUrl,
+      isPublished = true,
+      url,
+    } = req.body;
+    if (!title || !body) {
+      return res.status(400).json({ error: "Title and body are required." });
+    }
+    const fullText = title + " " + body;
+    const { categories, topCategory } = classifyArticle(fullText);
+    const lang = detectLanguage(fullText, source);
+    const finalImageUrl = imageUrl || FALLBACK_IMAGE;
+    const finalUrl =
+      url ||
+      `manual-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const newArticle = new Article({
+      title,
+      summary: summary || body.substring(0, 150),
+      body,
+      source: source || "Manual Post",
+      isPublished,
+      isCreatedBy: "manual",
+      publishedAt: new Date(),
+      lang,
+      categories,
+      topCategory,
+      imageUrl: finalImageUrl,
+      media: [{ type: "image", src: finalImageUrl }],
+      url: finalUrl,
+    });
+    const savedArticle = await newArticle.save();
+    res.status(201).json(savedArticle);
+  } catch (error) {
+    console.error("Error creating manual article:", error);
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: "Failed to create manual article." });
+  }
+});
+
 app.get("/api/mobile/articles", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -579,15 +615,75 @@ app.get("/api/mobile/articles", async (req, res) => {
 
 app.get("/api/articles", async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
-    const { lang } = req.query; // ✅ take language from query params
+
+    const { lang, category, type, source } = req.query;
 
     // Build filter object
     const filter = {};
+
+    // Language filter
     if (lang) {
-      filter.lang = lang; // ✅ only match this language
+      filter.lang = lang;
+    }
+
+    // Category filter
+    if (category) {
+      if (category === "N/A") {
+        filter.topCategory = { $in: [null, ""] };
+      } else if (category !== "All") {
+        filter.topCategory = category;
+      }
+    }
+
+    // Source filter
+    if (source && source !== "All") {
+      filter.source = source;
+    }
+
+    // Type filter (Manual vs Fetched)
+    if (type) {
+      if (type === "manual") {
+        filter.isCreatedBy = "manual";
+      } else if (type === "Fetched") {
+        filter.isCreatedBy = "rss";
+      }
+    }
+
+    // Query DB
+    const [articles, totalArticles] = await Promise.all([
+      Article.find(filter)
+        .sort({ publishedAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Article.countDocuments(filter),
+    ]);
+
+    res.status(200).json({
+      articles,
+      currentPage: page,
+      totalPages: Math.ceil(totalArticles / limit),
+      totalArticles,
+    });
+  } catch (error) {
+    console.error("Error fetching articles:", error);
+    res.status(500).json({ error: "Failed to fetch articles" });
+  }
+});
+
+
+app.get("/api/articles/total", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const { lang } = req.query;
+
+    const filter = {};
+    if (lang) {
+      filter.lang = lang;
     }
 
     const articles = await Article.find(filter)
@@ -612,18 +708,27 @@ app.get("/api/articles", async (req, res) => {
 app.put("/api/articles/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id))
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ error: "Invalid ID" });
+    }
 
-    const updatedArticle = await Article.findByIdAndUpdate(id, req.body, {
+    // Force isCreatedBy = "manual" when updating
+    const updateData = {
+      ...req.body,
+      isCreatedBy: "manual",
+    };
+
+    const updatedArticle = await Article.findByIdAndUpdate(id, updateData, {
       new: true,
     });
 
-    if (!updatedArticle)
+    if (!updatedArticle) {
       return res.status(404).json({ error: "Article not found" });
+    }
+
     res.status(200).json(updatedArticle);
   } catch (error) {
-    console.error(error);
+    console.error("Error updating article:", error);
     res.status(500).json({ error: "Failed to update article" });
   }
 });
@@ -645,7 +750,7 @@ app.delete("/api/articles/:id", async (req, res) => {
   }
 });
 
-// 9️⃣ Cron Job: Every 10 minutes
+//  Cron Job: Every 10 minutes
 cron.schedule("*/10 * * * *", async () => {
   console.log("⏰ Cron triggered fetchNews");
   await fetchNews();

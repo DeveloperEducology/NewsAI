@@ -578,6 +578,20 @@ export const CATEGORY_KEYWORDS = {
     "తిరుపతి",
     "chittoor",
     "చిత్తూరు",
+     // --- Political Leaders (AP) ---
+    "ys jagan mohan reddy", "వైఎస్ జగన్ మోహన్ రెడ్డి",
+    "n chandrababu naidu", "ఎన్ చంద్రబాబు నాయుడు",
+    "ys rajasekhara reddy", "వైఎస్ రాజశేఖర రెడ్డి",
+    "pawan kalyan", "పవన్ కళ్యాణ్",
+    "ntr", "ఎన్టీఆర్", "jr ntr", "జూనియర్ ఎన్టీఆర్",
+    "y s sharmila", "వైఎస్ షర్మిల",
+    "botcha satyanarayana", "బొత్స సత్యనారాయణ",
+    "yanamala ramakrishnudu", "యనమల రామకృష్ణుడు",
+    "devineni uma", "దేవినేని ఉమ",
+    "paritala ravi", "పరితాల రవి",
+    "chandramohan reddy", "చంద్రమోహన్ రెడ్డి",
+    "ganta srinivasa rao", "గంటా శ్రీనివాసరావు",
+    "amaravati", "అమరావతి",
   ],
   telangana: [
     "telangana",
@@ -646,6 +660,21 @@ export const CATEGORY_KEYWORDS = {
     "వరంగల్",
     "yadadri bhuvanagiri",
     "యాదాద్రి భువనగిరి",
+    // --- Political Leaders (TS) ---
+    "kcr", "కేసీఆర్",
+    "k chandrashekar rao", "కల్వకుంట్ల చంద్రశేఖరరావు",
+    "k t rama rao", "కేటీఆర్", "కె టి రామారావు",
+    "harish rao", "హరీష్ రావు",
+    "revanth reddy", "రేవంత్ రెడ్డి",
+    "asaddudin owaisi", "అసదుద్దీన్ ఒవైసీ",
+    "akbaruddin owaisi", "అక్బరుద్దీన్ ఒవైసీ",
+    "jana reddy", "జనా రెడ్డి",
+    "komatireddy venkat reddy", "కొమటిరెడ్డి వెంకట్ రెడ్డి",
+    "etela rajender", "ఈటల రాజేందర్",
+    "sabitha indra reddy", "సబితా ఇంద్రారెడ్డి",
+    "pocharam srinivas reddy", "పోచారం శ్రీనివాస్ రెడ్డి",
+    "tummala nageswara rao", "తుమ్మల నాగేశ్వరరావు",
+    "kadiyam srihari", "కడియం శ్రీహరి",
   ],
   national: [
     // --- States (General) ---
@@ -784,24 +813,74 @@ export const CATEGORY_KEYWORDS = {
     "pondicherry",
     "పాండిచ్చేరి",
   ],
+   politics: [
+    // --- Andhra Pradesh Leaders ---
+    "ys jagan mohan reddy", "వైఎస్ జగన్ మోహన్ రెడ్డి",
+    "n chandrababu naidu", "ఎన్ చంద్రబాబు నాయుడు",
+    "ys rajasekhara reddy", "వైఎస్ రాజశేఖర రెడ్డి",
+    "pawan kalyan", "పవన్ కళ్యాణ్",
+    "jr ntr", "జూనియర్ ఎన్టీఆర్",
+    "y s sharmila", "వైఎస్ షర్మిల",
+    "botcha satyanarayana", "బొత్స సత్యనారాయణ",
+    "yanamala ramakrishnudu", "యనమల రామకృష్ణుడు",
+    "devineni uma", "దేవినేని ఉమ",
+    "paritala ravi", "పరితాల రవి",
+    "ganta srinivasa rao", "గంటా శ్రీనివాసరావు",
+
+    // --- Telangana Leaders ---
+    "kcr", "కేసీఆర్",
+    "k chandrashekar rao", "కల్వకుంట్ల చంద్రశేఖరరావు",
+    "k t rama rao", "కేటీఆర్", "కె టి రామారావు",
+    "harish rao", "హరీష్ రావు",
+    "revanth reddy", "రేవంత్ రెడ్డి",
+    "asaduddin owaisi", "అసదుద్దీన్ ఒవైసీ",
+    "akbaruddin owaisi", "అక్బరుద్దీన్ ఒవైసీ",
+    "jana reddy", "జనా రెడ్డి",
+    "komatireddy venkat reddy", "కొమటిరెడ్డి వెంకట్ రెడ్డి",
+    "etela rajender", "ఈటల రాజేందర్",
+    "sabitha indra reddy", "సబితా ఇంద్రారెడ్డి",
+    "pocharam srinivas reddy", "పోచారం శ్రీనివాస్ రెడ్డి",
+    "tummala nageswara rao", "తుమ్మల నాగేశ్వరరావు",
+    "kadiyam srihari", "కడియం శ్రీహరి",
+
+    // --- National Leaders (optional add) ---
+    "narendra modi", "నరేంద్ర మోడి",
+    "amit shah", "అమిత్ షా",
+    "rahul gandhi", "రాహుల్ గాంధీ",
+    "sonia gandhi", "సోనియా గాంధీ",
+    "priyanka gandhi", "ప్రియాంక గాంధీ",
+    "arvind kejriwal", "అర్వింద్ కేజ్రీవాల్",
+    "mamata banerjee", "మమతా బెనర్జీ",
+    "nitish kumar", "నీతీష్ కుమార్",
+    "uddhav thackeray", "ఉద్ధవ్ ಠాక్రే",
+    "sharad pawar", "శరద్ పవార్",
+  ],
 };
 
-export function classifyArticle(text) {
+export function classifyArticle(text, topN = 3, minScore = 2) {
   const lowerText = text.toLowerCase();
   const categories = {};
 
+  // Count keyword matches
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     let score = 0;
     for (const kw of keywords) {
-      if (lowerText.includes(kw)) score += 1;
+      if (lowerText.includes(kw.toLowerCase())) score += 1;
     }
     if (score > 0) categories[cat] = score;
   }
 
-  let topCategory = null;
-  if (Object.keys(categories).length) {
-    topCategory = Object.entries(categories).sort((a, b) => b[1] - a[1])[0][0];
-  }
+  // Filter out weak matches
+  const filteredCategories = Object.entries(categories)
+    .filter(([_, score]) => score >= minScore);
 
-  return { categories, topCategory };
+  // Sort by score (highest first)
+  const sortedCategories = filteredCategories.sort((a, b) => b[1] - a[1]);
+
+  // Pick top N categories
+  const topCategories = sortedCategories
+    .slice(0, topN)
+    .map(([cat]) => cat);
+
+  return { categories, topCategories };
 }
