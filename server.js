@@ -84,10 +84,6 @@ const RSS_SOURCES = [
     url: "https://telugu.hindustantimes.com/rss/entertainment",
     name: "HT Telugu",
   },
-  {
-    url: "https://tv9telugu.com/web-stories/feed",
-    name: "Tv9 web stories",
-  },
   { url: "https://epaper.eenadu.net/Home/RssFeed", name: "Eenadu" },
   { url: "https://www.sakshi.com/rss.xml", name: "Sakshi" },
   { url: "https://10tv.in/latest/feed", name: "10TV" },
@@ -272,11 +268,11 @@ async function saveArticle(articleData) {
         recent.title
       );
       if (similarity >= SIMILARITY_THRESHOLD) {
-        console.log(
-          `DUPLICATE DETECTED: "${articleData.title}" is similar to "${
-            recent.title
-          }" (Score: ${similarity.toFixed(2)})`
-        );
+        // console.log(
+        //   `DUPLICATE DETECTED: "${articleData.title}" is similar to "${
+        //     recent.title
+        //   }" (Score: ${similarity.toFixed(2)})`
+        // );
         return null;
       }
     }
@@ -544,7 +540,8 @@ app.post("/api/articles", async (req, res) => {
   }
 });
 
-// ✨ NEW: Endpoint to create an article manually
+
+// ✨ NEW: Endpoint to create or update an article manually
 app.post("/api/articles/manual", async (req, res) => {
   try {
     const {
@@ -556,41 +553,57 @@ app.post("/api/articles/manual", async (req, res) => {
       isPublished = true,
       url,
     } = req.body;
+
     if (!title || !body) {
       return res.status(400).json({ error: "Title and body are required." });
     }
+
     const fullText = title + " " + body;
     const { categories, topCategory } = classifyArticle(fullText);
     const lang = detectLanguage(fullText, source);
     const finalImageUrl = imageUrl || FALLBACK_IMAGE;
+
+    // ✅ Always provide a fallback unique URL if none supplied
     const finalUrl =
       url ||
       `manual-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const newArticle = new Article({
-      title,
-      summary: summary || body.substring(0, 150),
-      body,
-      source: source || "Manual Post",
-      isPublished,
-      isCreatedBy: "manual",
-      publishedAt: new Date(),
-      lang,
-      categories,
-      topCategory,
-      imageUrl: finalImageUrl,
-      media: [{ type: "image", src: finalImageUrl }],
-      url: finalUrl,
+
+    // ✅ Use upsert (update if exists, insert if not)
+    const result = await Article.updateOne(
+      { url: finalUrl }, // match by unique URL
+      {
+        $set: {
+          title,
+          summary: summary || body.substring(0, 150),
+          body,
+          source: source || "Manual Post",
+          isPublished,
+          isCreatedBy: "manual",
+          publishedAt: new Date(),
+          lang,
+          categories,
+          topCategory,
+          imageUrl: finalImageUrl,
+          media: [{ type: "image", src: finalImageUrl }],
+          url: finalUrl,
+        },
+      },
+      { upsert: true }
+    );
+
+    // ✅ Fetch the latest doc back for response
+    const savedArticle = await Article.findOne({ url: finalUrl });
+
+    res.status(201).json({
+      message: result.upsertedCount > 0 ? "Article created" : "Article updated",
+      article: savedArticle,
     });
-    const savedArticle = await newArticle.save();
-    res.status(201).json(savedArticle);
   } catch (error) {
     console.error("Error creating manual article:", error);
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message });
-    }
-    res.status(500).json({ error: "Failed to create manual article." });
+    res.status(500).json({ error: "Failed to create/update manual article." });
   }
 });
+
 
 app.get("/api/mobile/articles", async (req, res) => {
   try {
@@ -676,6 +689,36 @@ app.get("/api/articles", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch articles" });
   }
 });
+
+app.get("/api/manual-articles", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+
+    // Always filter for manual articles
+    const filter = { isCreatedBy: "manual" };
+
+    const [articles, totalArticles] = await Promise.all([
+      Article.find(filter)
+        .sort({ publishedAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Article.countDocuments(filter),
+    ]);
+
+    res.status(200).json({
+      articles,
+      currentPage: page,
+      totalPages: Math.ceil(totalArticles / limit),
+      totalArticles,
+    });
+  } catch (error) {
+    console.error("Error fetching manual articles:", error);
+    res.status(500).json({ error: "Failed to fetch manual articles" });
+  }
+});
+
 
 
 app.get("/api/articles/total", async (req, res) => {
