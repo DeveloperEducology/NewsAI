@@ -21,7 +21,8 @@
     "node-fetch": "^3.3.2",
     "openai": "^5.15.0",
     "puppeteer": "^24.17.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "playwright-chromium": "^1.44.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
