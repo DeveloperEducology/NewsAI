@@ -1,4 +1,4 @@
-name: Update package-lock.json
+name: Ensure lockfile is updated
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - "package.json"
 
 jobs:
-  update-lockfile:
+  check-lockfile:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +23,34 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install dependencies (check only)
+        run: npm install --package-lock-only
+
+      - name: Verify lockfile sync
+        run: |
+          if ! git diff --quiet package-lock.json; then
+            echo "❌ package-lock.json is out of sync with package.json"
+            echo "Run 'npm install' to update it."
+            exit 1
+          fi
+
+  auto-fix-lockfile:
+    runs-on: ubuntu-latest
+    needs: check-lockfile
+    if: failure()  # only runs if the check fails
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies and update lockfile
         run: npm install
 
       - name: Commit updated lockfile
