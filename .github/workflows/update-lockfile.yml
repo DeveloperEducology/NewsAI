@@ -1,7 +1,7 @@
 name: Update package-lock.json
 
 on:
-  push:
+  pull_request:
     paths:
       - "package.json"
 
@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -28,3 +30,14 @@ jobs:
           git add package-lock.json
           git commit -m "chore: update package-lock.json [auto]" || echo "No changes to commit"
           git push
+
+      - name: Comment on PR
+        if: success()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          header: lockfile-update
+          message: |
+            ✅ The **package-lock.json** has been updated automatically.
+            You can review the changes here:  
+            👉 [Files changed](${{ github.event.pull_request.html_url }}/files)
