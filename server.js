@@ -8,6 +8,8 @@ import "dotenv/config";
 import fetch from "node-fetch";
 import puppeteer from "puppeteer";
 import cron from "node-cron";
+import { chromium } from "playwright";
+
 import Parser from "rss-parser";
 import { classifyArticle } from "./utils/classifier.js";
 
@@ -22,6 +24,40 @@ function cleanHtmlContent(htmlContent) {
   let text = $.text();
   text = text.replace(/\[\s*…\s*\]|\[&#8230;\]/g, "").trim();
   return text;
+}
+
+// --- Twitter Scraper ---
+async function scrapeTweets(username, count = 5) {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+
+  await page.goto(`https://twitter.com/${username}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.waitForSelector("article");
+
+  const tweets = await page.$$eval(
+    "article",
+    (articles, max) =>
+      articles.slice(0, max).map((article) => {
+        const textEl = article.querySelector("div[lang]");
+        const linkEl = article.querySelector("a[href*='/status/']");
+        const dateEl = article.querySelector("time");
+
+        return {
+          text: textEl ? textEl.innerText : "",
+          url: linkEl
+            ? `https://twitter.com${linkEl.getAttribute("href")}`
+            : "",
+          date: dateEl ? dateEl.getAttribute("datetime") : new Date().toISOString(),
+        };
+      }),
+    count
+  );
+console.log("tweets", tweets)
+  await browser.close();
+  return tweets;
 }
 
 function calculateJaccardSimilarity(text1, text2) {
@@ -216,7 +252,6 @@ app.use(express.json());
 
 function detectLanguage(text, source = "") {
   if (/[\u0C00-\u0C7F]/.test(text)) return "te";
-  // ✨ MODIFIED: Added clean source names for better detection
   const teluguSources = [
     "eenadu",
     "sakshi",
@@ -238,7 +273,7 @@ app.get("/", (req, res) => {
   res.send("Server is awake!");
 });
 
-// 🔄 Self-ping every 5 minutes to keep alive
+// 🔄 Self-ping every 5 minutes
 cron.schedule("*/5 * * * *", async () => {
   try {
     const res = await fetch(SELF_URL);
@@ -268,11 +303,6 @@ async function saveArticle(articleData) {
         recent.title
       );
       if (similarity >= SIMILARITY_THRESHOLD) {
-        // console.log(
-        //   `DUPLICATE DETECTED: "${articleData.title}" is similar to "${
-        //     recent.title
-        //   }" (Score: ${similarity.toFixed(2)})`
-        // );
         return null;
       }
     }
@@ -307,6 +337,24 @@ async function saveArticle(articleData) {
     { upsert: true }
   );
   return result.upsertedCount > 0 ? articleData : null;
+}
+
+// ✨ NEW: Save Tweet as Article
+async function saveTweetAsArticle(tweet, username) {
+  const articleData = {
+    title: tweet.text.slice(0, 80) || "Tweet",
+    summary: tweet.text,
+    body: tweet.text,
+    url: tweet.url,
+    source: `Twitter @${username}`,
+    isCreatedBy: "twitter",
+    publishedAt: new Date(tweet.date),
+    imageUrl: FALLBACK_IMAGE,
+    media: [{ type: "image", src: FALLBACK_IMAGE }],
+    lang: detectLanguage(tweet.text, "twitter"),
+  };
+
+  return await saveArticle(articleData);
 }
 
 // 7️⃣ Fetch News (NewsAPI + RSS + Scraper)
@@ -346,7 +394,7 @@ async function fetchNews() {
       }
     }
 
-    // --- RSS Feeds (parallel) ---
+    // --- RSS Feeds ---
     const rssFeeds = await Promise.allSettled(
       RSS_SOURCES.map((source) => parser.parseURL(source.url))
     );
@@ -388,7 +436,7 @@ async function fetchNews() {
       }
     }
 
-    // --- Scraper Example (Hindustan Times) ---
+    // --- Scraper Example ---
     try {
       const scrapeRes = await fetch("https://www.hindustantimes.com/trending", {
         headers: {
@@ -449,6 +497,31 @@ app.get("/fetch-news", async (req, res) => {
   const articles = await fetchNews();
   res.json({ message: "News fetched", count: articles.length, articles });
 });
+
+// --- NEW: Twitter Endpoint ---
+app.get("/api/twitter/:username", async (req, res) => {
+  try {
+    const username = req.params.username;
+    const tweets = await scrapeTweets(username, 10);
+
+    const savedArticles = [];
+    for (const tweet of tweets) {
+      const saved = await saveTweetAsArticle(tweet, username);
+      if (saved) savedArticles.push(saved);
+    }
+
+    res.json({
+      message: `Fetched ${tweets.length} tweets for @${username}`,
+      savedCount: savedArticles.length,
+      articles: savedArticles,
+    });
+  } catch (err) {
+    console.error("❌ Twitter scraping failed:", err);
+    res.status(500).json({ error: "Failed to fetch tweets" });
+  }
+});
+
+
 
 app.post("/api/users/anonymous", async (req, res) => {
   try {
@@ -801,6 +874,7 @@ app.delete("/api/articles/:id", async (req, res) => {
 cron.schedule("*/10 * * * *", async () => {
   console.log("⏰ Cron triggered fetchNews");
   await fetchNews();
+  await scrapeTweets();
 });
 
 // 🔟 Start Server
