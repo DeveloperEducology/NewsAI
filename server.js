@@ -102,39 +102,40 @@ const FALLBACK_IMAGE =
   "https://media.istockphoto.com/id/1194484769/vector/live-breaking-news-flat-illustration-tv-studio-interior-vector-illustration-television-news.jpg?s=612x612&w=0&k=20&c=sA5xt873Uogwz1m7o-4IhB5x9WKczKLFqFdSwV4yxJU=";
 
 // ✨ MODIFIED: Using an array of objects for sources with clean names
+
 const RSS_SOURCES = [
   // Telugu News
   { url: "https://ntvtelugu.com/feed", name: "NTV Telugu" },
   { url: "https://tv9telugu.com/feed", name: "TV9 Telugu" },
-  {
-    url: "https://telugu.hindustantimes.com/rss/andhra-pradesh",
-    name: "HT Telugu",
-  },
-  { url: "https://telugu.hindustantimes.com/rss/telangana", name: "HT Telugu" },
-  {
-    url: "https://telugu.hindustantimes.com/rss/national-international",
-    name: "HT Telugu",
-  },
-  { url: "https://telugu.hindustantimes.com/rss/sports", name: "HT Telugu" },
-  {
-    url: "https://telugu.hindustantimes.com/rss/entertainment",
-    name: "HT Telugu",
-  },
-  { url: "https://epaper.eenadu.net/Home/RssFeed", name: "Eenadu" },
-  { url: "https://www.sakshi.com/rss.xml", name: "Sakshi" },
-  { url: "https://10tv.in/latest/feed", name: "10TV" },
+  // {
+  //   url: "https://telugu.hindustantimes.com/rss/andhra-pradesh",
+  //   name: "HT Telugu",
+  // },
+  // { url: "https://telugu.hindustantimes.com/rss/telangana", name: "HT Telugu" },
+  // {
+  //   url: "https://telugu.hindustantimes.com/rss/national-international",
+  //   name: "HT Telugu",
+  // },
+  // { url: "https://telugu.hindustantimes.com/rss/sports", name: "HT Telugu" },
+  // {
+  //   url: "https://telugu.hindustantimes.com/rss/entertainment",
+  //   name: "HT Telugu",
+  // },
+  // { url: "https://epaper.eenadu.net/Home/RssFeed", name: "Eenadu" },
+  // { url: "https://www.sakshi.com/rss.xml", name: "Sakshi" },
+  // { url: "https://10tv.in/latest/feed", name: "10TV" },
   { url: "https://www.ntnews.com/rss", name: "Namasthe Telangana" },
-  { url: "https://www.manatelangana.news/feed", name: "Mana Telangana" },
+  // { url: "https://www.manatelangana.news/feed", name: "Mana Telangana" },
   // Major Indian English News
-  {
-    url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
-    name: "Times of India",
-  },
+  // {
+  //   url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+  //   name: "Times of India",
+  // },
   {
     url: "https://www.thehindu.com/news/national/feeder/default.rss",
     name: "The Hindu",
   },
-  { url: "https://indianexpress.com/feed/", name: "Indian Express" },
+  // { url: "https://indianexpress.com/feed/", name: "Indian Express" },
   { url: "https://feeds.feedburner.com/ndtvnews-latest", name: "NDTV News" },
 ];
 
