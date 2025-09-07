@@ -16,6 +16,14 @@ import { classifyArticle } from "./utils/classifier.js";
 const NEWSAPI_KEY = "51ab13506c5a43929f34a8139deaaaf6";
 const SELF_URL = process.env.SERVER_URL || "https://newsai-8a45.onrender.com";
 
+// ✅ Define Twitter accounts to scrape automatically
+const TWITTER_ACCOUNTS_TO_SCRAPE = [
+  // "ntvtelugulive",
+  // "tv9telugu",
+  // "TheHindu",
+  // "ndtv",
+];
+
 // --- Utilities ---
 function cleanHtmlContent(htmlContent) {
   if (!htmlContent) return "";
@@ -26,38 +34,81 @@ function cleanHtmlContent(htmlContent) {
   return text;
 }
 
-// --- Twitter Scraper ---
+// --- Twitter Scraper (FIXED) ---
+
+// --- Twitter Scraper (FIXED & UPGRADED) ---
 async function scrapeTweets(username, count = 5) {
+  if (!username) {
+    console.error("ScrapeTweets Error: Username is required.");
+    return [];
+  }
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
+  try {
+    const targetUrl = `https://x.com/${username}`;
+    console.log(`Navigating to ${targetUrl}...`);
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
 
-  await page.goto(`https://twitter.com/${username}`, {
-    waitUntil: "domcontentloaded",
-  });
+    // ✅ Wait for the main timeline container, not just any article
+    await page.waitForSelector("div[data-testid='cellInnerDiv']", {
+      timeout: 15000,
+    });
+    console.log(`Timeline loaded for @${username}.`);
 
-  await page.waitForSelector("article");
+    // 🛡️ Defense against Login Pop-ups
+    const closeButtonSelector = "div[aria-label='Dismiss']";
+    try {
+      if (
+        await page.locator(closeButtonSelector).isVisible({ timeout: 3000 })
+      ) {
+        await page.locator(closeButtonSelector).click();
+        console.log("Closed a login/signup popup.");
+      }
+    } catch (e) {
+      console.log("No popup found, continuing...");
+    }
 
-  const tweets = await page.$$eval(
-    "article",
-    (articles, max) =>
-      articles.slice(0, max).map((article) => {
-        const textEl = article.querySelector("div[lang]");
-        const linkEl = article.querySelector("a[href*='/status/']");
-        const dateEl = article.querySelector("time");
+    // 📜 Scroll down to trigger loading of latest tweets
+    await page.evaluate(() => window.scrollBy(0, 1000));
+    await page.waitForTimeout(1500); // Give time for new tweets to load
 
-        return {
-          text: textEl ? textEl.innerText : "",
-          url: linkEl
-            ? `https://twitter.com${linkEl.getAttribute("href")}`
-            : "",
-          date: dateEl ? dateEl.getAttribute("datetime") : new Date().toISOString(),
-        };
-      }),
-    count
-  );
-console.log("tweets", tweets)
-  await browser.close();
-  return tweets;
+    // Scrape a larger batch to find the latest ones
+    const scrapedTweets = await page.$$eval(
+      "article[data-testid='tweet']",
+      (articles, numToFetch) =>
+        articles.slice(0, numToFetch).map((article) => {
+          const textEl = article.querySelector("div[data-testid='tweetText']");
+          const timeEl = article.querySelector("time");
+          // 🔗 Get the canonical URL from the timestamp's parent link
+          const linkEl = timeEl ? timeEl.closest("a") : null;
+
+          if (!textEl || !timeEl || !linkEl) return null;
+
+          return {
+            text: textEl.innerText,
+            url: linkEl.href, // This gets the full URL directly
+            date: timeEl.getAttribute("datetime"),
+          };
+        }),
+      count + 5 // Fetch a few extra to sort through
+    );
+
+    // Filter, sort by date, and slice to get the true latest tweets
+    const latestTweets = scrapedTweets
+      .filter((tweet) => tweet !== null)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, count);
+
+    console.log(
+      `Scraped ${latestTweets.length} latest tweets for @${username}.`
+    );
+    return latestTweets;
+  } catch (error) {
+    console.error(`Error scraping tweets for @${username}:`, error.message);
+    return [];
+  } finally {
+    await browser.close();
+  }
 }
 
 function calculateJaccardSimilarity(text1, text2) {
@@ -101,41 +152,14 @@ function extractImageFromItem(item) {
 const FALLBACK_IMAGE =
   "https://media.istockphoto.com/id/1194484769/vector/live-breaking-news-flat-illustration-tv-studio-interior-vector-illustration-television-news.jpg?s=612x612&w=0&k=20&c=sA5xt873Uogwz1m7o-4IhB5x9WKczKLFqFdSwV4yxJU=";
 
-// ✨ MODIFIED: Using an array of objects for sources with clean names
-
 const RSS_SOURCES = [
-  // Telugu News
   { url: "https://ntvtelugu.com/feed", name: "NTV Telugu" },
   { url: "https://tv9telugu.com/feed", name: "TV9 Telugu" },
-  // {
-  //   url: "https://telugu.hindustantimes.com/rss/andhra-pradesh",
-  //   name: "HT Telugu",
-  // },
-  // { url: "https://telugu.hindustantimes.com/rss/telangana", name: "HT Telugu" },
-  // {
-  //   url: "https://telugu.hindustantimes.com/rss/national-international",
-  //   name: "HT Telugu",
-  // },
-  // { url: "https://telugu.hindustantimes.com/rss/sports", name: "HT Telugu" },
-  // {
-  //   url: "https://telugu.hindustantimes.com/rss/entertainment",
-  //   name: "HT Telugu",
-  // },
-  // { url: "https://epaper.eenadu.net/Home/RssFeed", name: "Eenadu" },
-  // { url: "https://www.sakshi.com/rss.xml", name: "Sakshi" },
-  // { url: "https://10tv.in/latest/feed", name: "10TV" },
   { url: "https://www.ntnews.com/rss", name: "Namasthe Telangana" },
-  // { url: "https://www.manatelangana.news/feed", name: "Mana Telangana" },
-  // Major Indian English News
-  // {
-  //   url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
-  //   name: "Times of India",
-  // },
   {
     url: "https://www.thehindu.com/news/national/feeder/default.rss",
     name: "The Hindu",
   },
-  // { url: "https://indianexpress.com/feed/", name: "Indian Express" },
   { url: "https://feeds.feedburner.com/ndtvnews-latest", name: "NDTV News" },
 ];
 
@@ -226,7 +250,7 @@ const Event = mongoose.model("Event", EventSchema);
 
 // 3️⃣ Initialize Express app
 const app = express();
-const port = process.env.PORT || 8000;
+const port = process.env.PORT || 5000;
 
 // 4️⃣ MongoDB connection
 mongoose
@@ -343,7 +367,7 @@ async function saveArticle(articleData) {
 // ✨ NEW: Save Tweet as Article
 async function saveTweetAsArticle(tweet, username) {
   const articleData = {
-    title: tweet.text.slice(0, 80) || "Tweet",
+    title: tweet.text.slice(0, 100) || "Tweet",
     summary: tweet.text,
     body: tweet.text,
     url: tweet.url,
@@ -503,7 +527,7 @@ app.get("/fetch-news", async (req, res) => {
 app.get("/api/twitter/:username", async (req, res) => {
   try {
     const username = req.params.username;
-    const tweets = await scrapeTweets(username, 10);
+    const tweets = await scrapeTweets(username, 5); // Fetch latest 5 tweets
 
     const savedArticles = [];
     for (const tweet of tweets) {
@@ -512,7 +536,7 @@ app.get("/api/twitter/:username", async (req, res) => {
     }
 
     res.json({
-      message: `Fetched ${tweets.length} tweets for @${username}`,
+      message: `Fetched ${tweets.length} latest tweets for @${username}`,
       savedCount: savedArticles.length,
       articles: savedArticles,
     });
@@ -521,8 +545,6 @@ app.get("/api/twitter/:username", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch tweets" });
   }
 });
-
-
 
 app.post("/api/users/anonymous", async (req, res) => {
   try {
@@ -614,7 +636,6 @@ app.post("/api/articles", async (req, res) => {
   }
 });
 
-
 // ✨ NEW: Endpoint to create or update an article manually
 app.post("/api/articles/manual", async (req, res) => {
   try {
@@ -637,14 +658,12 @@ app.post("/api/articles/manual", async (req, res) => {
     const lang = detectLanguage(fullText, source);
     const finalImageUrl = imageUrl || FALLBACK_IMAGE;
 
-    // ✅ Always provide a fallback unique URL if none supplied
     const finalUrl =
       url ||
       `manual-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-    // ✅ Use upsert (update if exists, insert if not)
     const result = await Article.updateOne(
-      { url: finalUrl }, // match by unique URL
+      { url: finalUrl },
       {
         $set: {
           title,
@@ -665,7 +684,6 @@ app.post("/api/articles/manual", async (req, res) => {
       { upsert: true }
     );
 
-    // ✅ Fetch the latest doc back for response
     const savedArticle = await Article.findOne({ url: finalUrl });
 
     res.status(201).json({
@@ -677,7 +695,6 @@ app.post("/api/articles/manual", async (req, res) => {
     res.status(500).json({ error: "Failed to create/update manual article." });
   }
 });
-
 
 app.get("/api/mobile/articles", async (req, res) => {
   try {
@@ -712,15 +729,12 @@ app.get("/api/articles", async (req, res) => {
 
     const { lang, category, type, source } = req.query;
 
-    // Build filter object
     const filter = {};
 
-    // Language filter
     if (lang) {
       filter.lang = lang;
     }
 
-    // Category filter
     if (category) {
       if (category === "N/A") {
         filter.topCategory = { $in: [null, ""] };
@@ -729,12 +743,10 @@ app.get("/api/articles", async (req, res) => {
       }
     }
 
-    // Source filter
     if (source && source !== "All") {
       filter.source = source;
     }
 
-    // Type filter (Manual vs Fetched)
     if (type) {
       if (type === "manual") {
         filter.isCreatedBy = "manual";
@@ -743,12 +755,8 @@ app.get("/api/articles", async (req, res) => {
       }
     }
 
-    // Query DB
     const [articles, totalArticles] = await Promise.all([
-      Article.find(filter)
-        .sort({ publishedAt: -1 })
-        .skip(skip)
-        .limit(limit),
+      Article.find(filter).sort({ publishedAt: -1 }).skip(skip).limit(limit),
       Article.countDocuments(filter),
     ]);
 
@@ -770,12 +778,19 @@ app.get("/api/manual-articles", async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
 
-    // Always filter for manual articles
-    const filter = { isCreatedBy: "manual" };
+    // Base filter for the types of articles to retrieve
+    const filter = {
+      isCreatedBy: { $in: ["manual", "twitter", "twitter_gemini", "website_gemini"] },
+      // ✅ STRICT CHECK ADDED:
+      // This ensures we only fetch articles that have been published
+      // up to the current moment, excluding any future-dated posts.
+      publishedAt: { $lte: new Date() },
+    };
 
+    // Use Promise.all to efficiently fetch articles and the total count
     const [articles, totalArticles] = await Promise.all([
       Article.find(filter)
-        .sort({ publishedAt: -1 })
+        .sort({ publishedAt: -1 }) // Sort by the latest first
         .skip(skip)
         .limit(limit),
       Article.countDocuments(filter),
@@ -792,8 +807,6 @@ app.get("/api/manual-articles", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch manual articles" });
   }
 });
-
-
 
 app.get("/api/articles/total", async (req, res) => {
   try {
@@ -833,7 +846,6 @@ app.put("/api/articles/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid ID" });
     }
 
-    // Force isCreatedBy = "manual" when updating
     const updateData = {
       ...req.body,
       isCreatedBy: "manual",
@@ -871,15 +883,28 @@ app.delete("/api/articles/:id", async (req, res) => {
   }
 });
 
-//  Cron Job: Every 10 minutes
+//  Cron Job (FIXED): Every 10 minutes
 cron.schedule("*/10 * * * *", async () => {
-  console.log("⏰ Cron triggered fetchNews");
+  console.log("⏰ Cron triggered: Fetching RSS news and Tweets...");
   await fetchNews();
-  await scrapeTweets();
+
+  console.log("Scraping Twitter accounts...");
+  for (const username of TWITTER_ACCOUNTS_TO_SCRAPE) {
+    try {
+      const tweets = await scrapeTweets(username, 5); // Scrape latest 5
+      for (const tweet of tweets) {
+        await saveTweetAsArticle(tweet, username);
+      }
+    } catch (err) {
+      console.error(`Failed to process tweets for @${username}`, err);
+    }
+  }
+  console.log("✅ Cron job finished.");
 });
 
 // 🔟 Start Server
 app.listen(port, async () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
-  // await fetchNews(); // run once on startup
+  // Initial fetch on startup if needed
+  // await fetchNews();
 });
