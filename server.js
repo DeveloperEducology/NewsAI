@@ -780,7 +780,7 @@ app.get("/api/manual-articles", async (req, res) => {
 
     // Base filter for the types of articles to retrieve
     const filter = {
-      isCreatedBy: { $in: ["manual", "twitter", "twitter_gemini", "website_gemini"] },
+      isCreatedBy: { $in: ["manual", "twitter", "twitter_gemini", "website_gemini", "twitter_scraper"] },
       // ✅ STRICT CHECK ADDED:
       // This ensures we only fetch articles that have been published
       // up to the current moment, excluding any future-dated posts.
