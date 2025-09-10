@@ -302,7 +302,9 @@ app.get("/", (req, res) => {
 cron.schedule("*/5 * * * *", async () => {
   try {
     const res = await fetch(SELF_URL);
+    const response = await fetch("https://play-write.onrender.com");
     console.log("Self-ping status:", res.status, new Date());
+    console.log("Self-ping status:", response.status, new Date());
   } catch (err) {
     console.error("Self-ping failed:", err);
   }
