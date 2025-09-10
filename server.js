@@ -778,19 +778,39 @@ app.get("/api/manual-articles", async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 10;
     const skip = (page - 1) * limit;
 
-    // Base filter for the types of articles to retrieve
+    const { query, isCreatedBy, source } = req.query;
+
+    // Base filter
     const filter = {
-      isCreatedBy: { $in: ["manual", "twitter", "twitter_gemini", "website_gemini", "twitter_scraper"] },
-      // ✅ STRICT CHECK ADDED:
-      // This ensures we only fetch articles that have been published
-      // up to the current moment, excluding any future-dated posts.
+      isCreatedBy: { 
+        $in: ["manual", "twitter", "twitter_gemini", "website_gemini", "twitter_scraper"] 
+      },
       publishedAt: { $lte: new Date() },
     };
 
-    // Use Promise.all to efficiently fetch articles and the total count
+    // If user passed a search query
+    if (query) {
+      filter.$or = [
+        { title: { $regex: query, $options: "i" } },
+        { content: { $regex: query, $options: "i" } },
+        { description: { $regex: query, $options: "i" } },
+      ];
+    }
+
+    // If user passed specific isCreatedBy
+    if (isCreatedBy) {
+      filter.isCreatedBy = isCreatedBy;
+    }
+
+    // If user passed specific source
+    if (source) {
+      filter.source = { $regex: source, $options: "i" };
+    }
+
+    // Run queries
     const [articles, totalArticles] = await Promise.all([
       Article.find(filter)
-        .sort({ publishedAt: -1 }) // Sort by the latest first
+        .sort({ publishedAt: -1 })
         .skip(skip)
         .limit(limit),
       Article.countDocuments(filter),
@@ -807,6 +827,9 @@ app.get("/api/manual-articles", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch manual articles" });
   }
 });
+
+
+
 
 app.get("/api/articles/total", async (req, res) => {
   try {
